@@ -1,4 +1,3 @@
-```markdown
 # LANOT_tools
 
 Paquete de utilidades para LANOT. Contiene `mapdrawer` como primer módulo.
@@ -20,6 +19,5 @@ m = MapDrawer()  # usa LANOT_DATA o /usr/local/share/lanot
 m.set_image(img)
 m.draw_logo()
 img.save("out.png")
-```
 ```
 
