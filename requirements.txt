@@ -1,0 +1,6 @@
+Pillow
+aggdraw
+pyshp
+pyproj
+numpy
+
