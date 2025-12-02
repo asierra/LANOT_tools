@@ -1,5 +1,14 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+mapdrawer - Herramienta para dibujar mapas y decoraciones en imágenes satelitales.
+
+Permite sobreponer capas vectoriales (costas, fronteras), logos, timestamps y leyendas
+sobre imágenes. Soporta proyecciones GOES y otras proyecciones vía pyproj.
+
+Autor: Abraham Sierra
+LANOT - Laboratorio Nacional de Observación de la Tierra
+"""
 
 import os
 import csv
@@ -7,6 +16,7 @@ from PIL import Image
 import aggdraw
 import shapefile as shp
 import math
+import numpy as np
 
 # Intentamos importar pyproj. Si no existe, el programa sigue funcionando en modo lineal.
 try:
@@ -71,8 +81,8 @@ class MapDrawer:
         self._layers = {
             'COASTLINE': 'shapefiles/ne_10m_coastline.shp',
             'COUNTRIES': 'shapefiles/ne_10m_admin_0_countries.shp',
-            #'MEXSTATES': 'shapefiles/dest_2015gwLines.shp'
             'MEXSTATES': 'shapefiles/mexico_estados_2023_wgs84_lines.shp'
+            # Alternativa con más detalle: 'shapefiles/dest_2015gwLines.shp'
         }
 
         # Configuración de proyección
@@ -115,8 +125,6 @@ class MapDrawer:
         if self.use_proj:
             # Para proyecciones curvas (como GOES), muestrear el perímetro
             # para obtener los límites correctos en el espacio proyectado
-            import numpy as np
-            
             n_samples = 50
             edge_lon = []
             edge_lat = []
@@ -252,7 +260,15 @@ class MapDrawer:
             return u, v
 
     def draw_shapefile(self, shp_rel_path, color='yellow', width=0.5):
-        if self.image is None: return
+        """Dibuja un shapefile sobre la imagen.
+        
+        Args:
+            shp_rel_path (str): Ruta relativa al shapefile desde lanot_dir.
+            color (str): Color de las líneas.
+            width (float): Grosor de las líneas.
+        """
+        if self.image is None:
+            return
 
         full_path = os.path.join(self.lanot_dir, shp_rel_path)
         
@@ -418,7 +434,7 @@ class MapDrawer:
                 try:
                     font = aggdraw.Font(color, font_path, fontsize)
                     break
-                except:
+                except (OSError, IOError, RuntimeError):
                     continue
             if font is None:
                 # Si todas fallan, usar fuente por defecto
@@ -428,7 +444,7 @@ class MapDrawer:
             try:
                 # aggdraw.Draw.textsize() devuelve (width, height) del texto
                 text_width, text_height = draw.textsize(fecha_str, font)
-            except:
+            except (AttributeError, TypeError):
                 # Fallback: aproximación si textsize no está disponible
                 text_width = len(fecha_str) * int(fontsize * 0.65)
                 text_height = int(fontsize * 1.2)
@@ -490,7 +506,7 @@ class MapDrawer:
             try:
                 font = aggdraw.Font(text_color, font_path, fontsize)
                 break
-            except:
+            except (OSError, IOError, RuntimeError):
                 continue
         if font is None:
             # Si todas fallan, usar fuente por defecto
@@ -614,7 +630,7 @@ def main():
     # Fecha
     parser.add_argument("--timestamp", help="Texto de la fecha/hora. Si no se da, intenta extraer del nombre o usa actual.")
     parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3], default=2, help="Posición de la fecha (0-3)")
-    parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5% del ancho de la imagen)")
+    parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5%% del ancho de la imagen)")
     parser.add_argument("--font-color", default="yellow", help="Color de fuente")
     
     # Leyenda
@@ -624,13 +640,13 @@ def main():
     
     # 1. Cargar imagen
     if not os.path.exists(args.input_image):
-        print(f"Error: Imagen {args.input_image} no encontrada.")
+        print(f"Error: Imagen '{args.input_image}' no encontrada.", file=sys.stderr)
         sys.exit(1)
         
     try:
-        img = Image.open(args.input_image).convert("RGB") # Asegurar RGB para dibujar
+        img = Image.open(args.input_image).convert("RGB")  # Asegurar RGB para dibujar
     except Exception as e:
-        print(f"Error abriendo imagen: {e}")
+        print(f"Error abriendo imagen: {e}", file=sys.stderr)
         sys.exit(1)
         
     # Calcular tamaños dinámicos si no se especifican
@@ -710,8 +726,12 @@ def main():
             
     # 8. Guardar
     output_path = args.output if args.output else args.input_image
-    img.save(output_path)
-    print(f"Imagen guardada en {output_path}")
+    try:
+        img.save(output_path)
+        print(f"Imagen guardada en {output_path}")
+    except Exception as e:
+        print(f"Error guardando imagen: {e}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -4,9 +4,30 @@ Herramientas y utilidades comunes para LANOT (Laboratorio Nacional de Observaci�
 
 ## Instalación
 
-### Instalación en servidor (accesible para todos los usuarios)
+### Instalación rápida en servidor (recomendada)
 
-Esta es la forma recomendada para instalar en un servidor Linux donde múltiples usuarios necesiten acceso:
+Usa el script de instalación automatizado:
+
+```bash
+cd /ruta/al/LANOT_tools
+sudo ./install.sh
+```
+
+El script:
+- ✅ Crea virtualenv en `/opt/lanot-tools/venv`
+- ✅ Instala el paquete y todas sus dependencias
+- ✅ Crea el comando `mapdrawer` accesible globalmente
+- ✅ Verifica que la instalación funcione correctamente
+
+**Para desinstalar:**
+```bash
+cd /ruta/al/LANOT_tools
+sudo ./uninstall.sh
+```
+
+### Instalación manual en servidor
+
+Si prefieres instalar manualmente:
 
 ```bash
 # 1. Crear directorio para la instalación

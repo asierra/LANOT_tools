@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     description="Herramientas y utilidades comunes para LANOT (Laboratorio Nacional de Observación de la Tierra)",
     author="Abraham Sierra",
-    packages=find_packages(),
+    py_modules=["mapdrawer"],
     install_requires=[
         "Pillow",
         "aggdraw",
