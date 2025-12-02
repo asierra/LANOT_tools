@@ -64,11 +64,26 @@ mapdrawer --help
 - ✅ No contamina el Python del sistema
 - ✅ Fácil de actualizar y desinstalar
 
-**Para actualizar después:**
+**Para actualizar después de modificar el código:**
+
+Opción 1 - Rápida (solo archivos modificados):
 ```bash
-sudo cp -r /ruta/al/LANOT_tools /opt/lanot-tools/src
+sudo cp /ruta/al/LANOT_tools/mapdrawer.py /opt/lanot-tools/src/
 sudo /opt/lanot-tools/venv/bin/pip install --upgrade --force-reinstall /opt/lanot-tools/src
 ```
+
+Opción 2 - Completa (volver a ejecutar instalación):
+```bash
+cd /ruta/al/LANOT_tools
+sudo ./install.sh
+```
+
+Opción 3 - Modo desarrollo (cambios se reflejan automáticamente):
+```bash
+sudo /opt/lanot-tools/venv/bin/pip uninstall lanot-tools
+sudo /opt/lanot-tools/venv/bin/pip install -e /ruta/al/LANOT_tools
+```
+Con `-e` los cambios en el código fuente se reflejan inmediatamente sin reinstalar.
 
 ### Instalación en modo desarrollo (para desarrollo activo)
 ```bash
