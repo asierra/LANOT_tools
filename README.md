@@ -156,9 +156,9 @@ img.save("salida.png")
 
 - **Proyecciones**: Soporta proyecciones GOES (goes16, goes17, goes18, goes19) y cualquier proyección EPSG vía pyproj
 - **Regiones predefinidas**: CONUS, Full Disk, y regiones personalizadas vía CSV
-- **Capas vectoriales**: Líneas costeras, países, estados de México
+- **Capas vectoriales**: Soporte para GeoPackage (.gpkg) - líneas costeras, fronteras de países, estados de México
 - **Decoraciones**: Logo LANOT, fecha/hora, leyendas desde archivos CPT
-- **Optimizado**: Caché de shapefiles, clipping inteligente para rendimiento
+- **Optimizado**: Caché de archivos vectoriales, clipping inteligente para rendimiento
 
 ## Opciones de línea de comandos
 
@@ -198,7 +198,7 @@ Salida:
 - Python >= 3.8
 - Pillow
 - aggdraw
-- pyshp
+- fiona
 - pyproj
 - numpy
 
@@ -219,4 +219,4 @@ GNU General Public License v3.0
 
 ## Autor
 
-Abraham Sierra
+Alejandro Aguilar Sierra
