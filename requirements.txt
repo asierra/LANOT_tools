@@ -1,6 +1,6 @@
 Pillow
 aggdraw
-pyshp
+fiona
 pyproj
 numpy
 

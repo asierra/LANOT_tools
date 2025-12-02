@@ -14,7 +14,7 @@ import os
 import csv
 from PIL import Image
 import aggdraw
-import shapefile as shp
+import fiona
 import math
 import numpy as np
 
@@ -76,12 +76,13 @@ class MapDrawer:
         self.lanot_dir = lanot_dir
         self.image = None
         self._shp_cache = {} # Caché para no re-leer shapefiles del disco
-        # Mapeo interno de capas simbólicas -> rutas relativas de shapefiles
+        # Mapeo interno de capas simbólicas -> rutas relativas de archivos vectoriales
         # Se puede extender con add_layer(). Las claves se manejan en mayúsculas.
+        # Soporta GeoPackage (.gpkg) y Shapefiles (.shp)
         self._layers = {
-            'COASTLINE': 'shapefiles/ne_10m_coastline.shp',
-            'COUNTRIES': 'shapefiles/ne_10m_admin_0_countries.shp',
-            'MEXSTATES': 'shapefiles/mexico_estados_2023_wgs84_lines.shp'
+            'COASTLINE': 'gpkg/costas_mundo_10m.gpkg',
+            'COUNTRIES': 'gpkg/paises_fronteras_10m.gpkg',
+            'MEXSTATES': 'gpkg/mexico_estados.gpkg'
             # Alternativa con más detalle: 'shapefiles/dest_2015gwLines.shp'
         }
 
@@ -259,84 +260,121 @@ class MapDrawer:
             v = int(h * (b['uly'] - lat) / height_span)
             return u, v
 
-    def draw_shapefile(self, shp_rel_path, color='yellow', width=0.5):
-        """Dibuja un shapefile sobre la imagen.
+    def draw_shapefile(self, vector_rel_path, color='yellow', width=0.5, layer=None):
+        """Dibuja un archivo vectorial (shapefile o geopackage) sobre la imagen.
         
         Args:
-            shp_rel_path (str): Ruta relativa al shapefile desde lanot_dir.
+            vector_rel_path (str): Ruta relativa al archivo vectorial desde lanot_dir.
             color (str): Color de las líneas.
             width (float): Grosor de las líneas.
+            layer (str, opcional): Nombre de la capa (solo para GeoPackage multi-capa).
         """
         if self.image is None:
             return
 
-        full_path = os.path.join(self.lanot_dir, shp_rel_path)
+        full_path = os.path.join(self.lanot_dir, vector_rel_path)
         
-        # Cache del lector de shapefiles para no reabrir el archivo si se usa en bucle
-        if full_path not in self._shp_cache:
+        # Cache: guardar como tupla (path, layer) para GeoPackage
+        cache_key = (full_path, layer) if layer else full_path
+        
+        if cache_key not in self._shp_cache:
             try:
-                self._shp_cache[full_path] = shp.Reader(full_path)
+                # Fiona abre con context manager, pero guardaremos features en cache
+                with fiona.open(full_path, layer=layer) as src:
+                    # Guardar todas las geometrías en memoria
+                    self._shp_cache[cache_key] = [feature for feature in src]
             except Exception as e:
-                print(f"Error leyendo shapefile {full_path}: {e}")
+                print(f"Error leyendo archivo vectorial {full_path}: {e}")
                 return
 
-        sf = self._shp_cache[full_path]
+        features = self._shp_cache[cache_key]
         draw = aggdraw.Draw(self.image)
         pen = aggdraw.Pen(color, width)
 
         b = self.bounds
-        # Buffer simple para decidir si dibujar o no el shape
-        margin = 5.0 
+        margin = 5.0
 
-        for shape in sf.shapeRecords():
-            # Optimización rápida: Bounding box del shape vs Bounding box de la imagen
-            # shape.shape.bbox es [minx, miny, maxx, maxy]
-            s_bbox = shape.shape.bbox
-            if (s_bbox[2] < b['ulx'] - margin or s_bbox[0] > b['lrx'] + margin or
-                s_bbox[3] < b['lry'] - margin or s_bbox[1] > b['uly'] + margin):
+        for feature in features:
+            geom = feature['geometry']
+            if not geom:
                 continue
-
-            parts = shape.shape.parts
-            points = shape.shape.points
-            parts_idx = list(parts) + [len(points)]
-
-            for k in range(len(parts)):
-                segment = points[parts_idx[k]:parts_idx[k+1]]
-                if not segment: continue
-
-                # Transformar todos los puntos del segmento
-                # Usamos una lista plana para aggdraw.line: [x1, y1, x2, y2, ...]
-                pixel_coords = []
+            
+            # Obtener bbox de la geometría si existe
+            # Fiona usa bounds en feature, pero no siempre está disponible
+            # Mejor procesar las coordenadas directamente
+            
+            geom_type = geom['type']
+            coords = geom['coordinates']
+            
+            # Manejar diferentes tipos de geometría
+            if geom_type in ['LineString', 'MultiLineString']:
+                # Convertir a lista de LineStrings
+                if geom_type == 'LineString':
+                    linestrings = [coords]
+                else:  # MultiLineString
+                    linestrings = coords
                 
-                # Convertimos punto a punto
-                # NOTA: En C++ haríamos esto vectorizado, aquí el bucle es lo más costoso.
-                # Si la precisión extrema no es vital en los bordes, el clipping manual
-                # dentro del bucle ayuda a no dibujar líneas fuera de imagen.
-                
-                for lon, lat in segment:
-                    # Clipping suave para evitar coordenadas locas fuera de imagen
-                    if (b['ulx'] - margin < lon < b['lrx'] + margin and 
-                        b['lry'] - margin < lat < b['uly'] + margin):
-                        
-                        res = self._geo2pixel(lon, lat)
-                        if res is None:
-                            # Si la proyección falla (punto infinito/inválido), cortamos la línea
+                for linestring in linestrings:
+                    if not linestring:
+                        continue
+                    
+                    pixel_coords = []
+                    
+                    for lon, lat in linestring:
+                        # Clipping suave
+                        if (b['ulx'] - margin < lon < b['lrx'] + margin and 
+                            b['lry'] - margin < lat < b['uly'] + margin):
+                            
+                            res = self._geo2pixel(lon, lat)
+                            if res is None:
+                                if len(pixel_coords) >= 4:
+                                    draw.line(pixel_coords, pen)
+                                pixel_coords = []
+                                continue
+                                
+                            u, v = res
+                            pixel_coords.extend((u, v))
+                        else:
                             if len(pixel_coords) >= 4:
                                 draw.line(pixel_coords, pen)
                             pixel_coords = []
-                            continue
-                            
-                        u, v = res
-                        pixel_coords.extend((u, v))
-                    else:
-                        # Si el segmento se sale, dibujamos lo que llevamos y reiniciamos
+                    
+                    # Dibujar remanente
+                    if len(pixel_coords) >= 4:
+                        draw.line(pixel_coords, pen)
+            
+            elif geom_type in ['Polygon', 'MultiPolygon']:
+                # Para polígonos, dibujar solo los bordes (anillos exteriores)
+                if geom_type == 'Polygon':
+                    polygons = [coords]
+                else:  # MultiPolygon
+                    polygons = coords
+                
+                for polygon in polygons:
+                    # polygon[0] es el anillo exterior, polygon[1:] son huecos
+                    for ring in polygon:
+                        pixel_coords = []
+                        
+                        for lon, lat in ring:
+                            if (b['ulx'] - margin < lon < b['lrx'] + margin and 
+                                b['lry'] - margin < lat < b['uly'] + margin):
+                                
+                                res = self._geo2pixel(lon, lat)
+                                if res is None:
+                                    if len(pixel_coords) >= 4:
+                                        draw.line(pixel_coords, pen)
+                                    pixel_coords = []
+                                    continue
+                                    
+                                u, v = res
+                                pixel_coords.extend((u, v))
+                            else:
+                                if len(pixel_coords) >= 4:
+                                    draw.line(pixel_coords, pen)
+                                pixel_coords = []
+                        
                         if len(pixel_coords) >= 4:
                             draw.line(pixel_coords, pen)
-                        pixel_coords = []
-                
-                # Dibujar remanente
-                if len(pixel_coords) >= 4:
-                    draw.line(pixel_coords, pen)
 
         draw.flush()
 
@@ -628,8 +666,8 @@ def main():
     parser.add_argument("--logo-size", type=int, help="Tamaño del logo en píxeles")
     
     # Fecha
-    parser.add_argument("--timestamp", help="Texto de la fecha/hora. Si no se da, intenta extraer del nombre o usa actual.")
-    parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3], default=2, help="Posición de la fecha (0-3)")
+    parser.add_argument("--timestamp", help="Texto de la fecha/hora a mostrar.")
+    parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3], help="Posición de la fecha (0-3). Si se especifica sin --timestamp, usa fecha actual.")
     parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5%% del ancho de la imagen)")
     parser.add_argument("--font-color", default="yellow", help="Color de fuente")
     
@@ -693,11 +731,22 @@ def main():
         mapper.draw_logo(logosize=logo_size, position=args.logo_pos)
         
     # 6. Fecha
-    ts = args.timestamp
-    if not ts:
+    # Solo mostrar fecha si se especificó --timestamp, --timestamp-pos, 
+    # o se detecta patrón de fecha en el nombre del archivo
+    ts = None
+    pos = None
+    
+    if args.timestamp:
+        # Usuario especificó texto explícito
+        ts = args.timestamp
+        pos = args.timestamp_pos if args.timestamp_pos is not None else 2
+    elif args.timestamp_pos is not None:
+        # Solo se dio --timestamp-pos, usar fecha actual
+        ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
+        pos = args.timestamp_pos
+    else:
         # Intentar extraer del nombre (YYYYjjjHHMM)
         import re
-        # Buscamos 4 digitos (año), 3 digitos (dia juliano), 4 digitos (hora minuto)
         match = re.search(r"(\d{4})(\d{3})(\d{4})", os.path.basename(args.input_image))
         if match:
             yyyy, jjj, hhmm = match.groups()
@@ -705,15 +754,13 @@ def main():
                 # Convertir a datetime
                 dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
                 ts = dt.strftime("%Y/%m/%d %H:%MZ")
+                pos = 2  # Posición por defecto
                 print(f"Fecha extraída del nombre: {ts}")
             except ValueError:
-                print("Advertencia: Patrón de fecha encontrado pero inválido. Usando fecha actual.")
-                ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
-        else:
-            # Si no se encuentra patrón, usar fecha actual
-            ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
-        
-    mapper.draw_fecha(ts, position=args.timestamp_pos, fontsize=font_size, color=args.font_color)
+                pass  # Patrón inválido, no mostrar fecha
+    
+    if ts is not None and pos is not None:
+        mapper.draw_fecha(ts, position=pos, fontsize=font_size, color=args.font_color)
     
     # 7. Leyenda
     if args.cpt:

@@ -9,7 +9,7 @@ setup(
     install_requires=[
         "Pillow",
         "aggdraw",
-        "pyshp",
+        "fiona",
         "pyproj",
         "numpy"
     ],
