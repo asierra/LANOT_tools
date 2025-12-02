@@ -6,7 +6,7 @@ mapdrawer - Herramienta para dibujar mapas y decoraciones en imágenes satelital
 Permite sobreponer capas vectoriales (costas, fronteras), logos, timestamps y leyendas
 sobre imágenes. Soporta proyecciones GOES y otras proyecciones vía pyproj.
 
-Autor: Abraham Sierra
+Autor: Alejandro Aguilar Sierra
 LANOT - Laboratorio Nacional de Observación de la Tierra
 """
 
