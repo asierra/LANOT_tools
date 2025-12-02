@@ -1,183 +1,717 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
+import csv
+from PIL import Image
+import aggdraw
+import shapefile as shp
 import math
 
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
-
-# Import opcional de aggdraw, shapefile, pyproj, numpy
-try:
-    import aggdraw
-except Exception:
-    aggdraw = None
-
-try:
-    import shapefile as shp
-except Exception:
-    shp = None
-
+# Intentamos importar pyproj. Si no existe, el programa sigue funcionando en modo lineal.
 try:
     from pyproj import Transformer
     HAS_PYPROJ = True
-except Exception:
+except ImportError:
     HAS_PYPROJ = False
 
-try:
-    import numpy as np
-except Exception:
-    np = None
+# Proyecciones GOES predefinidas
+GOES_PROJECTIONS = {
+    'goes16': '+proj=geos +h=35786023.0 +lon_0=-75.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
+    'goes17': '+proj=geos +h=35786023.0 +lon_0=-137.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
+    'goes18': '+proj=geos +h=35786023.0 +lon_0=-137.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
+    'goes19': '+proj=geos +h=35786023.0 +lon_0=-75.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
+}
+
+# Regiones predefinidas (ulx, uly, lrx, lry)
+# Valores típicos para GOES-16 (East)
+PREDEFINED_REGIONS = {
+    'conus': (-152.1093, 56.76145, -52.94688, 14.57134),
+    # Para Full Disk, definimos lat/lon aproximados, pero MapDrawer
+    # usará límites en metros hardcoded si detecta esta clave y proyección GOES.
+    'fulldisk': (-156.2995, 81.3282, 6.2995, -81.3282),
+    'fd': (-156.2995, 81.3282, 6.2995, -81.3282),
+}
+
+# Límites en metros para Full Disk GOES-R (ABI)
+# h * 0.151872 radians
+GOES_FD_EXTENT_METERS = {
+    'min_x': -5434894.885056,
+    'max_y': 5434894.885056,
+    'width': 10869789.770112,
+    'height': -10869789.770112 # Negativo porque y_min - y_max
+}
+
+# Límites en metros para CONUS GOES-16 (East)
+# x_rad: [-0.101360, 0.038640], y_rad: [0.128240, 0.044240]
+# h = 35786023.0
+GOES_CONUS_EXTENT_METERS = {
+    'min_x': -3627271.29,
+    'max_y': 4589200.59,
+    'width': 5010043.22,
+    'height': -3006025.93
+}
 
 class MapDrawer:
-    """
-    Clase básica para dibujar decoraciones sobre imágenes.
-    - lanot_dir: ruta a recursos (logos, shapefiles, cpt).
-      Si es None, se usa la variable de entorno LANOT_DATA o '/usr/local/share/lanot'.
-    """
-
-    def __init__(self, lanot_dir=None, target_crs=None):
-        if lanot_dir is None:
-            self.lanot_dir = os.environ.get("LANOT_DATA", "/usr/local/share/lanot")
-        else:
-            self.lanot_dir = lanot_dir
-
-        if not os.path.exists(self.lanot_dir):
-            # No detener; es solo una advertencia para el usuario.
-            print(f"Advertencia: directorio de recursos {self.lanot_dir} no existe.")
-
+    def __init__(self, lanot_dir='/usr/local/share/lanot', target_crs=None):
+        """
+        Inicializa el dibujante de mapas.
+        
+        Args:
+            lanot_dir (str): Ruta base de los recursos (shapefiles/logos).
+            target_crs (str, opcional): Código EPSG (ej. 'epsg:3857'), string Proj4, 
+                                        o clave corta GOES ('goes16', 'goes17', 'goes18').
+                                        Si es None, usa proyección lineal (Plate Carrée).
+        """
+        self.lanot_dir = lanot_dir
         self.image = None
-        self._shp_cache = {}
+        self._shp_cache = {} # Caché para no re-leer shapefiles del disco
+        # Mapeo interno de capas simbólicas -> rutas relativas de shapefiles
+        # Se puede extender con add_layer(). Las claves se manejan en mayúsculas.
         self._layers = {
             'COASTLINE': 'shapefiles/ne_10m_coastline.shp',
             'COUNTRIES': 'shapefiles/ne_10m_admin_0_countries.shp',
+            #'MEXSTATES': 'shapefiles/dest_2015gwLines.shp'
+            'MEXSTATES': 'shapefiles/mexico_estados_2023_wgs84_lines.shp'
         }
 
+        # Configuración de proyección
         self.use_proj = False
         self.transformer = None
-        if target_crs and HAS_PYPROJ:
-            self.transformer = Transformer.from_crs("epsg:4326", target_crs, always_xy=True)
-            self.use_proj = True
+        
+        if target_crs:
+            # Resolver claves cortas de GOES
+            crs_lower = target_crs.lower()
+            if crs_lower in GOES_PROJECTIONS:
+                resolved_crs = GOES_PROJECTIONS[crs_lower]
+                print(f"Info: Resolviendo '{target_crs}' a proyección GOES.")
+            else:
+                resolved_crs = target_crs
+            
+            if HAS_PYPROJ:
+                # 'always_xy=True' asegura el orden (lon, lat)
+                self.transformer = Transformer.from_crs("epsg:4326", resolved_crs, always_xy=True)
+                self.use_proj = True
+                print(f"Info: Usando proyección {target_crs} vía pyproj.")
+            else:
+                print("Advertencia: pyproj no está instalado. Se usará proyección lineal simple.")
 
-        # Bounds en lon/lat (ULX, ULY, LRX, LRY)
+        # Coordenadas (se inicializan en 0)
         self.bounds = {'ulx': 0., 'uly': 0., 'lrx': 0., 'lry': 0.}
-        self.proj_bounds = {'min_x': 0., 'max_y': 0., 'width': 1., 'height': 1.}
-
+        
     def set_image(self, pil_image):
-        if Image is None:
-            raise RuntimeError("Pillow no está instalado.")
         self.image = pil_image
 
     def set_bounds(self, ulx, uly, lrx, lry):
+        """
+        Define los límites geográficos (Lon/Lat WGS84) de la imagen.
+        Si se usa pyproj, calcula también los límites en el plano proyectado.
+        """
         self.bounds['ulx'] = ulx
         self.bounds['uly'] = uly
         self.bounds['lrx'] = lrx
         self.bounds['lry'] = lry
 
+        if self.use_proj:
+            # Para proyecciones curvas (como GOES), muestrear el perímetro
+            # para obtener los límites correctos en el espacio proyectado
+            import numpy as np
+            
+            n_samples = 50
+            edge_lon = []
+            edge_lat = []
+            
+            # Borde superior e inferior
+            lon_samples = np.linspace(ulx, lrx, n_samples)
+            edge_lon.extend(lon_samples)
+            edge_lat.extend([uly] * n_samples)
+            edge_lon.extend(lon_samples)
+            edge_lat.extend([lry] * n_samples)
+            
+            # Borde izquierdo y derecho
+            lat_samples = np.linspace(lry, uly, n_samples)
+            edge_lon.extend([ulx] * n_samples)
+            edge_lat.extend(lat_samples)
+            edge_lon.extend([lrx] * n_samples)
+            edge_lat.extend(lat_samples)
+            
+            # Transformar todos los puntos del perímetro
+            x_vals, y_vals = self.transformer.transform(edge_lon, edge_lat)
+            
+            # Filtrar valores inválidos
+            x_vals = np.array(x_vals)
+            y_vals = np.array(y_vals)
+            valid_mask = np.isfinite(x_vals) & np.isfinite(y_vals)
+            
+            if np.any(valid_mask):
+                x_valid = x_vals[valid_mask]
+                y_valid = y_vals[valid_mask]
+                
+                x_min = np.min(x_valid)
+                x_max = np.max(x_valid)
+                y_min = np.min(y_valid)
+                y_max = np.max(y_valid)
+            else:
+                # Fallback: usar solo las esquinas
+                x_min, y_max = self.transformer.transform(ulx, uly)
+                x_max, y_min = self.transformer.transform(lrx, lry)
+            
+            self.proj_bounds = {
+                'min_x': x_min, 'max_y': y_max,
+                'width': x_max - x_min,
+                'height': y_min - y_max  # Note: y_min suele ser menor que y_max
+            }
+
+    def load_bounds_from_csv(self, recorte_name, csv_path=None):
+        # Verificar primero regiones predefinidas (hardcoded)
+        name_lower = recorte_name.lower()
+        if name_lower in PREDEFINED_REGIONS:
+            # Caso especial: Full Disk con proyección GOES
+            if name_lower in ('fd', 'fulldisk') and self.use_proj:
+                # Usar límites en metros directos para evitar problemas de proyección en las esquinas
+                self.proj_bounds = GOES_FD_EXTENT_METERS.copy()
+                # También establecemos bounds lat/lon referenciales (aunque no se usen para el mapeo)
+                vals = PREDEFINED_REGIONS[name_lower]
+                self.bounds['ulx'] = vals[0]
+                self.bounds['uly'] = vals[1]
+                self.bounds['lrx'] = vals[2]
+                self.bounds['lry'] = vals[3]
+                print(f"Info: Usando límites Full Disk GOES en metros: {self.proj_bounds}")
+                return True
+            
+            # Caso especial: CONUS con proyección GOES (Asumiendo GOES-16/East)
+            if name_lower == 'conus' and self.use_proj:
+                self.proj_bounds = GOES_CONUS_EXTENT_METERS.copy()
+                vals = PREDEFINED_REGIONS[name_lower]
+                self.bounds['ulx'] = vals[0]
+                self.bounds['uly'] = vals[1]
+                self.bounds['lrx'] = vals[2]
+                self.bounds['lry'] = vals[3]
+                print(f"Info: Usando límites CONUS GOES en metros: {self.proj_bounds}")
+                return True
+            
+            vals = PREDEFINED_REGIONS[name_lower]
+            self.set_bounds(*vals)
+            print(f"Info: Usando región predefinida '{recorte_name}': {vals}")
+            return True
+
+        if csv_path is None:
+            csv_path = os.path.join(self.lanot_dir, "docs/recortes_coordenadas.csv")
+        
+        try:
+            # Optimización: Podríamos cargar todo el CSV a memoria si se hacen muchas consultas,
+            # pero para uso normal línea por línea está bien.
+            with open(csv_path, newline='') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    if row[0] == recorte_name:
+                        # Convertir a float y desempaquetar
+                        vals = [float(i) for i in row[2:]]
+                        self.set_bounds(*vals)
+                        return True
+            print(f"Advertencia: Recorte '{recorte_name}' no encontrado en CSV.")
+            return False
+        except FileNotFoundError:
+            print(f"Error: No se encontró el archivo {csv_path}")
+            return False
+
+    def _geo2pixel(self, lon, lat):
+        """Convierte lon/lat a u/v (píxeles) usando la estrategia activa.
+           Devuelve None si la proyección falla (infinito/nan).
+        """
+        w = self.image.width
+        h = self.image.height
+        
+        if self.use_proj:
+            # 1. Proyectar punto (Lat/Lon -> Metros)
+            x_p, y_p = self.transformer.transform(lon, lat)
+            
+            # Verificar si el resultado es finito
+            if not (math.isfinite(x_p) and math.isfinite(y_p)):
+                return None
+            
+            # 2. Interpolar en el plano proyectado
+            pb = self.proj_bounds
+            if pb['width'] == 0 or pb['height'] == 0: return 0, 0
+            
+            u = int(w * (x_p - pb['min_x']) / pb['width'])
+            # Coordenada Y de imagen crece hacia abajo, coordenadas geográficas/proyectadas crecen hacia arriba
+            v = int(h * (y_p - pb['max_y']) / pb['height']) 
+            return u, v
+            
+        else:
+            # Estrategia Original (Lineal / Plate Carrée)
+            b = self.bounds
+            width_span = b['lrx'] - b['ulx']
+            height_span = b['uly'] - b['lry'] # uly suele ser mayor que lry
+            
+            if width_span == 0 or height_span == 0: return 0, 0
+            
+            u = int(w * (lon - b['ulx']) / width_span)
+            v = int(h * (b['uly'] - lat) / height_span)
+            return u, v
+
+    def draw_shapefile(self, shp_rel_path, color='yellow', width=0.5):
+        if self.image is None: return
+
+        full_path = os.path.join(self.lanot_dir, shp_rel_path)
+        
+        # Cache del lector de shapefiles para no reabrir el archivo si se usa en bucle
+        if full_path not in self._shp_cache:
+            try:
+                self._shp_cache[full_path] = shp.Reader(full_path)
+            except Exception as e:
+                print(f"Error leyendo shapefile {full_path}: {e}")
+                return
+
+        sf = self._shp_cache[full_path]
+        draw = aggdraw.Draw(self.image)
+        pen = aggdraw.Pen(color, width)
+
+        b = self.bounds
+        # Buffer simple para decidir si dibujar o no el shape
+        margin = 5.0 
+
+        for shape in sf.shapeRecords():
+            # Optimización rápida: Bounding box del shape vs Bounding box de la imagen
+            # shape.shape.bbox es [minx, miny, maxx, maxy]
+            s_bbox = shape.shape.bbox
+            if (s_bbox[2] < b['ulx'] - margin or s_bbox[0] > b['lrx'] + margin or
+                s_bbox[3] < b['lry'] - margin or s_bbox[1] > b['uly'] + margin):
+                continue
+
+            parts = shape.shape.parts
+            points = shape.shape.points
+            parts_idx = list(parts) + [len(points)]
+
+            for k in range(len(parts)):
+                segment = points[parts_idx[k]:parts_idx[k+1]]
+                if not segment: continue
+
+                # Transformar todos los puntos del segmento
+                # Usamos una lista plana para aggdraw.line: [x1, y1, x2, y2, ...]
+                pixel_coords = []
+                
+                # Convertimos punto a punto
+                # NOTA: En C++ haríamos esto vectorizado, aquí el bucle es lo más costoso.
+                # Si la precisión extrema no es vital en los bordes, el clipping manual
+                # dentro del bucle ayuda a no dibujar líneas fuera de imagen.
+                
+                for lon, lat in segment:
+                    # Clipping suave para evitar coordenadas locas fuera de imagen
+                    if (b['ulx'] - margin < lon < b['lrx'] + margin and 
+                        b['lry'] - margin < lat < b['uly'] + margin):
+                        
+                        res = self._geo2pixel(lon, lat)
+                        if res is None:
+                            # Si la proyección falla (punto infinito/inválido), cortamos la línea
+                            if len(pixel_coords) >= 4:
+                                draw.line(pixel_coords, pen)
+                            pixel_coords = []
+                            continue
+                            
+                        u, v = res
+                        pixel_coords.extend((u, v))
+                    else:
+                        # Si el segmento se sale, dibujamos lo que llevamos y reiniciamos
+                        if len(pixel_coords) >= 4:
+                            draw.line(pixel_coords, pen)
+                        pixel_coords = []
+                
+                # Dibujar remanente
+                if len(pixel_coords) >= 4:
+                    draw.line(pixel_coords, pen)
+
+        draw.flush()
+
+    # --- Nueva API basada en nombres de capa ---
     def add_layer(self, key, rel_path):
+        """Agrega o actualiza una capa simbólica.
+
+        Args:
+            key (str): Nombre simbólico (ej: 'RIVERS'). Se normaliza a mayúsculas.
+            rel_path (str): Ruta relativa al directorio lanot_dir.
+        """
         self._layers[key.upper()] = rel_path
 
     def list_layers(self):
+        """Devuelve lista de claves de capas disponibles."""
         return sorted(self._layers.keys())
 
-    def _geo2pixel_linear(self, lon, lat):
-        w = self.image.width
-        h = self.image.height
-        b = self.bounds
-        width_span = b['lrx'] - b['ulx']
-        height_span = b['uly'] - b['lry']
-        if width_span == 0 or height_span == 0:
-            return 0, 0
-        u = int(w * (lon - b['ulx']) / width_span)
-        v = int(h * (b['uly'] - lat) / height_span)
-        return u, v
+    def draw_layer(self, key, color='yellow', width=0.5):
+        """Dibuja una capa referenciada por nombre simbólico.
 
-    def draw_logo(self, logosize=128, position=3):
+        Args:
+            key (str): Clave de la capa (ej: 'COASTLINE'). No sensible a mayúsculas.
+            color (str): Color de la línea.
+            width (float): Grosor de línea.
+        """
         if self.image is None:
             return
-        if Image is None:
-            print("Pillow no disponible.")
+        layer_key = key.upper()
+        if layer_key not in self._layers:
+            print(f"Advertencia: capa '{key}' no registrada. Capas disponibles: {self.list_layers()}")
             return
+        rel_path = self._layers[layer_key]
+        self.draw_shapefile(rel_path, color=color, width=width)
 
-        logo_path = os.path.join(self.lanot_dir, 'logos', 'lanot_negro_sn-128.png')
+    def draw_logo(self, logosize=128, position=3):
+        """
+        position: bitmask (0=Left, 1=Right) | (0=Top, 2=Bottom) 
+        Ej: 0=UL, 1=UR, 2=LL, 3=LR
+        """
         try:
-            logo = Image.open(logo_path).convert("RGBA")
-        except Exception:
-            print("Logo no encontrado en", logo_path)
+            logo_path = os.path.join(self.lanot_dir, 'logos/lanot_negro_sn-128.png')
+            logo = Image.open(logo_path)
+        except FileNotFoundError:
+            print("Logo no encontrado.")
             return
 
+        # Mantener aspecto
         aspect = logo.height / logo.width
         new_h = int(logosize * aspect)
         logo = logo.resize((logosize, new_h), Image.Resampling.LANCZOS)
 
         pos_x = position & 1
         pos_y = position >> 1
+
         x = self.image.width - logosize - 10 if pos_x else 10
         y = self.image.height - new_h - 10 if pos_y else 10
-        try:
-            self.image.paste(logo, (x, y), logo)
-        except Exception:
-            # En caso de imagen sin alpha, pegar sin máscara
-            self.image.paste(logo, (x, y))
 
-    def draw_layer(self, key, color='yellow', width=0.5):
+        self.image.paste(logo, (x, y), logo)
+
+    def draw_fecha(self, timestamp, position=2, fontsize=15, format="%Y/%m/%d %H:%MZ", color='white'):
+        """
+        Dibuja la fecha/hora en la imagen.
+        
+        Args:
+            timestamp (datetime): Objeto datetime con la fecha/hora a dibujar
+            position (int): Posición en la imagen (0=UL, 1=UR, 2=LL, 3=LR)
+            fontsize (int): Tamaño de la fuente
+            format (str): Formato de fecha usando códigos strftime (por defecto: "%Y/%m/%d %H:%MZ")
+            color (str): Color del texto
+        """
         if self.image is None:
             return
-        layer_key = key.upper()
-        if layer_key not in self._layers:
-            print(f"Capa {key} no registrada. Capas: {self.list_layers()}")
-            return
-        rel_path = self._layers[layer_key]
-        full_path = os.path.join(self.lanot_dir, rel_path)
-        if shp is None:
-            print("pyshp no instalado; no se pueden dibujar shapefiles.")
-            return
+        
         try:
-            if full_path not in self._shp_cache:
-                self._shp_cache[full_path] = shp.Reader(full_path)
+            from datetime import datetime
+            
+            # Convertir timestamp a string usando el formato especificado
+            if isinstance(timestamp, datetime):
+                fecha_str = timestamp.strftime(format)
+            else:
+                # Si es un string, usarlo directamente
+                fecha_str = str(timestamp)
+            
+            # Usar aggdraw para dibujar texto
+            draw = aggdraw.Draw(self.image)
+            
+            # Crear fuente (aggdraw usa fuentes truetype)
+            # Intentar múltiples rutas para compatibilidad Debian/Rocky
+            font_paths = [
+                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',  # Debian/Ubuntu
+                '/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf',  # Rocky/RHEL
+            ]
+            font = None
+            for font_path in font_paths:
+                try:
+                    font = aggdraw.Font(color, font_path, fontsize)
+                    break
+                except:
+                    continue
+            if font is None:
+                # Si todas fallan, usar fuente por defecto
+                font = aggdraw.Font(color, size=fontsize)
+            
+            # Calcular el tamaño real del texto renderizado
+            try:
+                # aggdraw.Draw.textsize() devuelve (width, height) del texto
+                text_width, text_height = draw.textsize(fecha_str, font)
+            except:
+                # Fallback: aproximación si textsize no está disponible
+                text_width = len(fecha_str) * int(fontsize * 0.65)
+                text_height = int(fontsize * 1.2)
+            
+            pos_x = position & 1
+            pos_y = position >> 1
+            
+            margin = 10
+            
+            if pos_x:  # Right
+                x = self.image.width - text_width - margin
+            else:  # Left
+                x = margin
+            
+            if pos_y:  # Bottom
+                y = self.image.height - text_height - margin
+            else:  # Top
+                y = margin
+            
+            # Dibujar el texto
+            draw.text((x, y), fecha_str, font)
+            draw.flush()
+            
         except Exception as e:
-            print("Error leyendo shapefile:", e)
+            print(f"Error dibujando fecha: {e}")
+    def draw_legend(self, items, position=2, fontsize=15, box_size=None, 
+                    padding=10, gap=6, margin=10, vertical_offset=0,
+                    bg_color='white', text_color='black', border_color=None, border_width=1):
+        """Dibuja una leyenda con recuadros de color y etiquetas.
+
+        Args:
+            items (list[tuple[str, tuple|str]]): Lista de (etiqueta, color).
+            position (int): 0=UL, 1=UR, 2=LL, 3=LR.
+            fontsize (int): Tamaño de fuente.
+            box_size (int, opcional): Tamaño del cuadro de color. Por defecto = fontsize.
+            padding (int): Relleno interno del fondo.
+            gap (int): Espacio entre cuadro de color y texto.
+            margin (int): Margen desde el borde de la imagen.
+            vertical_offset (int): Desplazamiento vertical en píxeles desde el borde
+                (positivo aleja del borde: hacia arriba si Bottom, hacia abajo si Top).
+            bg_color (str|tuple): Color de fondo de la leyenda.
+            text_color (str|tuple): Color del texto.
+            border_color (str|tuple, opcional): Color del borde. None para sin borde.
+            border_width (int): Grosor del borde si border_color no es None.
+        """
+        if self.image is None or not items:
             return
 
-        sf = self._shp_cache[full_path]
-        if aggdraw is None:
-            print("aggdraw no instalado; no se puede dibujar.")
-            return
+        box_size = box_size or fontsize
         draw = aggdraw.Draw(self.image)
-        pen = aggdraw.Pen(color, width)
-        for shape in sf.shapeRecords():
-            points = shape.shape.points
-            if not points:
+        
+        # Intentar múltiples rutas para compatibilidad Debian/Rocky
+        font_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',  # Debian/Ubuntu
+            '/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf',  # Rocky/RHEL
+        ]
+        font = None
+        for font_path in font_paths:
+            try:
+                font = aggdraw.Font(text_color, font_path, fontsize)
+                break
+            except:
                 continue
-            coords = []
-            for lon, lat in points:
-                u, v = self._geo2pixel_linear(lon, lat)
-                coords.extend((u, v))
-            if len(coords) >= 4:
-                draw.line(coords, pen)
+        if font is None:
+            # Si todas fallan, usar fuente por defecto
+            font = aggdraw.Font(text_color, size=fontsize)
+
+        # Calcular dimensiones
+        text_width = lambda s: int(len(str(s)) * fontsize * 0.6)
+        line_heights = [max(fontsize + 4, box_size) for _, _ in items]
+        line_widths = [padding + box_size + gap + text_width(label) + padding for label, _ in items]
+        
+        legend_width = max(line_widths)
+        legend_height = padding + sum(line_heights) + padding
+
+        # Calcular posición
+        pos_x = position & 1
+        pos_y = position >> 1
+
+        x0 = self.image.width - legend_width - margin if pos_x else margin
+        y0 = (self.image.height - legend_height - margin - vertical_offset) if pos_y else (margin + vertical_offset)
+        x1 = x0 + legend_width
+        y1 = y0 + legend_height
+
+        # Dibujar fondo
+        brush_bg = aggdraw.Brush(bg_color)
+        if border_color:
+            pen_border = aggdraw.Pen(border_color, border_width)
+            draw.rectangle((x0, y0, x1, y1), pen_border, brush_bg)
+        else:
+            draw.rectangle((x0, y0, x1, y1), None, brush_bg)
+
+        # Dibujar filas (cuadro de color + etiqueta)
+        cy = y0 + padding
+        for label, color in items:
+            lh = max(fontsize + 4, box_size)
+            
+            # Cuadro de color
+            bx0 = x0 + padding
+            by0 = cy + (lh - box_size) // 2
+            bx1 = bx0 + box_size
+            by1 = by0 + box_size
+            draw.rectangle((bx0, by0, bx1, by1), aggdraw.Pen(color, 1), aggdraw.Brush(color))
+
+            # Texto de etiqueta
+            tx = bx1 + gap
+            ty = cy + (lh - fontsize) // 2
+            draw.text((tx, ty), str(label), font)
+
+            cy += lh
+
         draw.flush()
 
     def parse_cpt(self, cpt_path):
+        """
+        Parsea un archivo CPT y devuelve una lista de items para la leyenda.
+        Soporta formato discreto simple: valor r g b [etiqueta]
+        """
         items = []
-        if not os.path.isabs(cpt_path):
-            cpt_path = os.path.join(self.lanot_dir, cpt_path)
         if not os.path.exists(cpt_path):
-            print("CPT no encontrado:", cpt_path)
+            print(f"Advertencia: CPT {cpt_path} no encontrado.")
             return items
+
         try:
-            with open(cpt_path) as f:
+            with open(cpt_path, 'r') as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith(('#', 'B', 'F', 'N')):
                         continue
+                    
                     parts = line.split()
+                    # Formato esperado discreto: val r g b [label]
                     if len(parts) >= 4:
                         try:
+                            # Intentamos parsear r,g,b
                             r, g, b = int(parts[1]), int(parts[2]), int(parts[3])
-                            label = " ".join(parts[4:]) if len(parts) > 4 else parts[0]
-                            items.append((label, (r, g, b)))
-                        except Exception:
+                            color = (r, g, b)
+                            
+                            # Etiqueta
+                            if len(parts) > 4:
+                                # Si hay más partes, unimos el resto como etiqueta
+                                label = " ".join(parts[4:])
+                            else:
+                                label = parts[0]
+                            
+                            items.append((label, color))
+                        except ValueError:
+                            # Si falla conversión a int, saltamos
                             continue
         except Exception as e:
-            print("Error leyendo CPT:", e)
+            print(f"Error leyendo CPT: {e}")
+            
         return items
 
+# --- Bloque Principal para pruebas ---
+def main():
+    import argparse
+    import sys
+    from datetime import datetime, timezone
+
+    parser = argparse.ArgumentParser(description="Herramienta de línea de comandos para dibujar mapas y decoraciones en imágenes.")
+    
+    parser.add_argument("input_image", help="Ruta de la imagen de entrada (PNG, JPG, etc.)")
+    parser.add_argument("--output", help="Ruta de la imagen de salida. Por defecto sobreescribe la entrada.")
+    
+    # Límites
+    group_bounds = parser.add_mutually_exclusive_group()
+    group_bounds.add_argument("--bounds", nargs=4, type=float, metavar=('ULX', 'ULY', 'LRX', 'LRY'), 
+                              help="Límites geográficos: ulx uly lrx lry")
+    group_bounds.add_argument("--recorte", help="Nombre del recorte definido en recortes_coordenadas.csv")
+    
+    # Capas
+    parser.add_argument("--layer", action="append", 
+                        help="Capa a dibujar: NOMBRE:COLOR:GROSOR (ej: COASTLINE:blue:0.5)")
+    
+    # Proyección
+    parser.add_argument("--crs", help="Sistema de coordenadas (ej: 'goes16', 'epsg:4326').")
+    
+    # Logo
+    parser.add_argument("--logo-pos", type=int, choices=[0, 1, 2, 3], help="Posición del logo (0-3)")
+    parser.add_argument("--logo-size", type=int, help="Tamaño del logo en píxeles")
+    
+    # Fecha
+    parser.add_argument("--timestamp", help="Texto de la fecha/hora. Si no se da, intenta extraer del nombre o usa actual.")
+    parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3], default=2, help="Posición de la fecha (0-3)")
+    parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5% del ancho de la imagen)")
+    parser.add_argument("--font-color", default="yellow", help="Color de fuente")
+    
+    # Leyenda
+    parser.add_argument("--cpt", help="Archivo CPT para generar leyenda")
+    
+    args = parser.parse_args()
+    
+    # 1. Cargar imagen
+    if not os.path.exists(args.input_image):
+        print(f"Error: Imagen {args.input_image} no encontrada.")
+        sys.exit(1)
+        
+    try:
+        img = Image.open(args.input_image).convert("RGB") # Asegurar RGB para dibujar
+    except Exception as e:
+        print(f"Error abriendo imagen: {e}")
+        sys.exit(1)
+        
+    # Calcular tamaños dinámicos si no se especifican
+    img_width = img.width
+    
+    # Logo: 10% del ancho, mínimo 64px
+    if args.logo_size:
+        logo_size = args.logo_size
+    else:
+        logo_size = max(64, int(img_width * 0.10))
+        
+    # Fuente: 1.5% del ancho, mínimo 15px
+    if args.font_size:
+        font_size = args.font_size
+    else:
+        font_size = max(15, int(img_width * 0.015))
+        
+    # 2. Inicializar MapDrawer
+    mapper = MapDrawer(target_crs=args.crs)
+    mapper.set_image(img)
+    
+    # 3. Establecer límites
+    bounds_set = False
+    if args.bounds:
+        mapper.set_bounds(*args.bounds)
+        bounds_set = True
+    elif args.recorte:
+        if mapper.load_bounds_from_csv(args.recorte):
+            bounds_set = True
+    
+    # 4. Dibujar capas
+    if args.layer and bounds_set:
+        for layer_def in args.layer:
+            parts = layer_def.split(':')
+            name = parts[0]
+            color = parts[1] if len(parts) > 1 else 'yellow'
+            width = float(parts[2]) if len(parts) > 2 else 0.5
+            mapper.draw_layer(name, color=color, width=width)
+    elif args.layer and not bounds_set:
+        print("Advertencia: Se pidieron capas pero no se definieron límites (--bounds o --recorte).")
+
+    # 5. Logo
+    if args.logo_pos is not None:
+        mapper.draw_logo(logosize=logo_size, position=args.logo_pos)
+        
+    # 6. Fecha
+    ts = args.timestamp
+    if not ts:
+        # Intentar extraer del nombre (YYYYjjjHHMM)
+        import re
+        # Buscamos 4 digitos (año), 3 digitos (dia juliano), 4 digitos (hora minuto)
+        match = re.search(r"(\d{4})(\d{3})(\d{4})", os.path.basename(args.input_image))
+        if match:
+            yyyy, jjj, hhmm = match.groups()
+            try:
+                # Convertir a datetime
+                dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
+                ts = dt.strftime("%Y/%m/%d %H:%MZ")
+                print(f"Fecha extraída del nombre: {ts}")
+            except ValueError:
+                print("Advertencia: Patrón de fecha encontrado pero inválido. Usando fecha actual.")
+                ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
+        else:
+            # Si no se encuentra patrón, usar fecha actual
+            ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
+        
+    mapper.draw_fecha(ts, position=args.timestamp_pos, fontsize=font_size, color=args.font_color)
+    
+    # 7. Leyenda
+    if args.cpt:
+        items = mapper.parse_cpt(args.cpt)
+        if items:
+            # Si hay fecha en la misma posición, desplazar leyenda
+            # Ajustar offset vertical basado en el tamaño de fuente
+            v_offset = int(font_size * 2.5) if args.timestamp_pos == args.timestamp_pos else 0
+            mapper.draw_legend(items, position=args.timestamp_pos, fontsize=font_size, vertical_offset=v_offset)
+            
+    # 8. Guardar
+    output_path = args.output if args.output else args.input_image
+    img.save(output_path)
+    print(f"Imagen guardada en {output_path}")
+
+if __name__ == "__main__":
+    main()

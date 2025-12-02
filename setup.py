@@ -14,4 +14,9 @@ setup(
         "numpy"
     ],
     python_requires=">=3.8",
+    entry_points={
+        'console_scripts': [
+            'mapdrawer=mapdrawer:main',
+        ],
+    },
 )
