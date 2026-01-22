@@ -1,0 +1,12 @@
+# phase.cpt
+# Creada a partir de paleta IPOPP, 20251112 19:46 UTC
+# COLOR_MODEL = RGB
+0 128 128 128 ; clear_sky
+1 0   0   255 ; liquid_water
+2 0   255 255 ; super_cooled_liquid_water
+3 128 0	  128 ; mixed_phase
+4 255 192 203 ; ice
+5   0   0   0 ; unknown
+B   0   0   0
+F 255 255 255
+N 255   0   0

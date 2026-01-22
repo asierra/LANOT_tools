@@ -2,6 +2,7 @@ Wed Dec 10 04:55:29 PM CST 2025
 
 Poder poner simbología como escala.
 
+
 Wed Dec 24 02:20:51 PM CST 2025
 
 Actualizar de acuerdo a los cambios en hpsatviews. Leer json. Poder
@@ -9,3 +10,10 @@ procesar varios recortes a la vez sin cerrar la imagen original.
 Agregar las habilidades del script para hacer mapas de ceniza (las que
 valgan la pena).
 
+
+Thu Jan 22 12:12:07 PM CST 2026
+
+En geotiff2view.py falta poner valores en la tabla de color. Si la CPT 
+es discreta, poner las etiquetas. De lo contrario, poner el mínimo, máximo
+y algunos valores intermedios bajo la barra de colores y ajustar el tamaño
+de la misma de acuerdo a el ancho de los textos.
