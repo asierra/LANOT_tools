@@ -306,7 +306,23 @@ def load_geotiff(filepath, n_idx=None, offset=0, raw_values=False):
     else:
         debug_msg("Rasterio no disponible, usando PIL.")
         print("Advertencia: rasterio no instalado. Usando PIL (funcionalidad limitada).", file=sys.stderr)
-        return Image.open(filepath)
+        img = Image.open(filepath)
+
+        # PIL no puede guardar modo 'F' (float) como PNG. Debemos convertir.
+        if img.mode == 'F':
+            arr = np.array(img)
+            if raw_values:
+                # Modo raw: intentar preservar valores enteros aplicando offset
+                # Similar a la lógica de rasterio
+                data_shifted = np.nan_to_num(arr) - offset
+                upper_limit = 254 if (n_idx is not None and n_idx == 255) else 255
+                img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
+                return Image.fromarray(img_data, 'L')
+            else:
+                # Modo visualización: normalizar a 0-255
+                return Image.fromarray(normalize_band(arr), 'L')
+
+        return img
 
 def main():
     global VERBOSE
@@ -338,6 +354,11 @@ def main():
             draw_colorbar(ImageDraw.Draw(img), palette, 0, img.height-2*barsz, img.width, barsz, max_index=max_idx)
         else:
             print("Advertencia: La imagen no es de un solo canal (L), se ignora la paleta.", file=sys.stderr)
+
+    # Si el formato de salida es JPEG, convertir a RGB (necesario si hay paleta)
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext in ['.jpg', '.jpeg']:
+        img = img.convert('RGB')
 
     img.save(output_path)
     print(f"Guardado en {output_path}")
