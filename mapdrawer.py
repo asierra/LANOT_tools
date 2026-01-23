@@ -415,7 +415,7 @@ class MapDrawer:
         Ej: 0=UL, 1=UR, 2=LL, 3=LR
         """
         try:
-            logo_path = os.path.join(self.lanot_dir, 'logos/lanot_negro_sn-128.png')
+            logo_path = os.path.join(self.lanot_dir, 'logos/lanot_negro_sn.png')
             logo = Image.open(logo_path)
         except FileNotFoundError:
             print("Logo no encontrado.")
@@ -464,6 +464,8 @@ class MapDrawer:
             # Crear fuente (aggdraw usa fuentes truetype)
             # Intentar múltiples rutas para compatibilidad Debian/Rocky
             font_paths = [
+                '/usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Regular.ttf',  # Debian/Ubuntu
+                '/usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-Regular.ttf',    # Rocky/RHEL
                 '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',  # Debian/Ubuntu
                 '/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf',  # Rocky/RHEL
             ]
