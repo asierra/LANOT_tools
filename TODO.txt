@@ -22,6 +22,8 @@ de la misma de acuerdo a el ancho de los textos. Resuelto.
 Fri Jan 23 05:55:49 PM CST 2026
 
 Definir rutas con -o aunque no incluyamos todo el nombre del archivo y
-lo guarde con el nombre por default ( -o ./ indica solo la ruta). Y la opción -j para que guarde
-jpeg en lugar de png (por omisión).
+lo guarde con el nombre por default ( -o ./ indica solo la ruta). Y la
+opción -j para que guarde jpeg en lugar de png (por omisión). Por otro
+lado, falta una estrategia de realce de grises como gamma o histograma
+local.
 
