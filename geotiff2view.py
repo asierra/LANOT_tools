@@ -650,7 +650,7 @@ def main():
 
     # Integración con MapDrawer (Capas y Logo)
     if (args.logo_pos is not None or args.layer or args.timestamp_pos is not None or args.timestamp or args.legend_pos is not None):
-        # aggdraw requiere RGB/RGBA para dibujar colores explícitos
+        # MapDrawer requiere un modo de color directo (RGB/RGBA) para dibujar elementos con colores arbitrarios (capas, logos, texto).
         if img.mode == 'L' or img.mode == 'P':
             debug_msg("Convirtiendo imagen a RGB/RGBA para MapDrawer")
             mode = 'RGBA' if args.alpha else 'RGB'

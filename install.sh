@@ -24,7 +24,8 @@ fi
 INSTALL_DIR="/opt/lanot-tools"
 VENV_DIR="${INSTALL_DIR}/venv"
 SRC_DIR="${INSTALL_DIR}/src"
-BIN_WRAPPER="/usr/local/bin/mapdrawer"
+BIN_WRAPPER_MD="/usr/local/bin/mapdrawer"
+BIN_WRAPPER_G2V="/usr/local/bin/geotiff2view"
 
 # Directorio del script (donde está el código fuente)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -81,32 +82,43 @@ else
 fi
 
 # Paso 6: Crear wrapper script
-echo -e "${YELLOW}[6/6] Creando comando global 'mapdrawer'...${NC}"
-cat > "${BIN_WRAPPER}" << 'EOF'
+echo -e "${YELLOW}[6/6] Creando comandos globales...${NC}"
+cat > "${BIN_WRAPPER_MD}" << 'EOF'
 #!/bin/bash
 # Wrapper para mapdrawer - ejecuta desde virtualenv
 VENV_DIR="/opt/lanot-tools/venv"
 exec "${VENV_DIR}/bin/mapdrawer" "$@"
 EOF
 
-chmod +x "${BIN_WRAPPER}"
-echo "  ✓ Comando ${BIN_WRAPPER} creado"
+chmod +x "${BIN_WRAPPER_MD}"
+echo "  ✓ Comando ${BIN_WRAPPER_MD} creado"
+
+cat > "${BIN_WRAPPER_G2V}" << 'EOF'
+#!/bin/bash
+# Wrapper para geotiff2view - ejecuta desde virtualenv
+VENV_DIR="/opt/lanot-tools/venv"
+exec "${VENV_DIR}/bin/geotiff2view" "$@"
+EOF
+
+chmod +x "${BIN_WRAPPER_G2V}"
+echo "  ✓ Comando ${BIN_WRAPPER_G2V} creado"
 
 # Verificación
 echo ""
 echo -e "${YELLOW}Verificando instalación...${NC}"
-if command -v mapdrawer &> /dev/null && mapdrawer --help > /dev/null 2>&1; then
+if command -v mapdrawer &> /dev/null && mapdrawer --help > /dev/null 2>&1 && \
+   command -v geotiff2view &> /dev/null && geotiff2view --help > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Instalación completada exitosamente!${NC}"
     echo ""
-    echo "Puede usar 'mapdrawer' desde cualquier ubicación:"
+    echo "Puede usar los comandos desde cualquier ubicación:"
     echo "  $ mapdrawer --help"
-    echo "  $ mapdrawer imagen.png --recorte fulldisk --crs goes16 --layer COASTLINE:white:1.0"
+    echo "  $ geotiff2view --help"
     echo ""
     echo "Para desinstalar, ejecute:"
     echo "  $ sudo ${SCRIPT_DIR}/uninstall.sh"
-    echo "  o manualmente: sudo rm -rf ${INSTALL_DIR} ${BIN_WRAPPER}"
+    echo "  o manualmente: sudo rm -rf ${INSTALL_DIR} ${BIN_WRAPPER_MD} ${BIN_WRAPPER_G2V}"
 else
     echo -e "${RED}✗ Error en la verificación. La instalación puede estar incompleta.${NC}"
-    echo "Intente ejecutar manualmente: ${BIN_WRAPPER} --help"
+    echo "Intente ejecutar manualmente: ${BIN_WRAPPER_MD} --help y ${BIN_WRAPPER_G2V} --help"
     exit 1
 fi

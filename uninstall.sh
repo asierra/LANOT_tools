@@ -19,7 +19,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 INSTALL_DIR="/opt/lanot-tools"
-BIN_WRAPPER="/usr/local/bin/mapdrawer"
+BIN_WRAPPER_MD="/usr/local/bin/mapdrawer"
+BIN_WRAPPER_G2V="/usr/local/bin/geotiff2view"
 
 echo -e "${YELLOW}=== Desinstalación de LANOT_tools ===${NC}"
 echo ""
@@ -32,10 +33,15 @@ if [[ ! $REPLY =~ ^[Ss]$ ]]; then
     exit 0
 fi
 
-# Eliminar comando
-if [ -f "${BIN_WRAPPER}" ]; then
-    rm -f "${BIN_WRAPPER}"
-    echo -e "${GREEN}✓ Eliminado: ${BIN_WRAPPER}${NC}"
+# Eliminar comandos
+if [ -f "${BIN_WRAPPER_MD}" ]; then
+    rm -f "${BIN_WRAPPER_MD}"
+    echo -e "${GREEN}✓ Eliminado: ${BIN_WRAPPER_MD}${NC}"
+fi
+
+if [ -f "${BIN_WRAPPER_G2V}" ]; then
+    rm -f "${BIN_WRAPPER_G2V}"
+    echo -e "${GREEN}✓ Eliminado: ${BIN_WRAPPER_G2V}${NC}"
 fi
 
 # Eliminar directorio de instalación
