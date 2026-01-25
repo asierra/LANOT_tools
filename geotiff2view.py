@@ -546,12 +546,23 @@ def main():
     parser.add_argument("--font-size", help="Tamaño de fuente (píxeles o % del ancho)")
     parser.add_argument("--font-color", default="yellow", help="Color de la fuente del timestamp")
     parser.add_argument("--legend-pos", type=int, choices=[0, 1, 2, 3], help="Posición de la leyenda (0-3)")
+    parser.add_argument("--jpeg", "-j", action="store_true", help="Guardar salida en formato JPEG (por defecto PNG)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Mostrar mensajes de depuración")
     
     args = parser.parse_args()
     VERBOSE = args.verbose
     
-    output_path = args.output if args.output else f"{os.path.splitext(args.input)[0]}.png"
+    default_ext = ".jpg" if args.jpeg else ".png"
+
+    if args.output:
+        # Si es un directorio (existente o termina en /), construir ruta con nombre de entrada
+        if os.path.isdir(args.output) or args.output.endswith(os.sep):
+            base_name = os.path.splitext(os.path.basename(args.input))[0]
+            output_path = os.path.join(args.output, f"{base_name}{default_ext}")
+        else:
+            output_path = args.output
+    else:
+        output_path = f"{os.path.splitext(args.input)[0]}{default_ext}"
     
     palette = None
     n_idx = None
