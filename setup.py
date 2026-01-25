@@ -8,7 +8,6 @@ setup(
     py_modules=["mapdrawer"],
     install_requires=[
         "Pillow",
-        "aggdraw",
         "fiona",
         "pyproj",
         "numpy"

@@ -12,8 +12,7 @@ LANOT - Laboratorio Nacional de Observación de la Tierra
 
 import os
 import csv
-from PIL import Image
-import aggdraw
+from PIL import Image, ImageDraw, ImageFont
 import fiona
 import math
 import numpy as np
@@ -288,8 +287,7 @@ class MapDrawer:
                 return
 
         features = self._shp_cache[cache_key]
-        draw = aggdraw.Draw(self.image)
-        pen = aggdraw.Pen(color, width)
+        draw = ImageDraw.Draw(self.image)
 
         b = self.bounds
         margin = 5.0
@@ -328,7 +326,7 @@ class MapDrawer:
                             res = self._geo2pixel(lon, lat)
                             if res is None:
                                 if len(pixel_coords) >= 4:
-                                    draw.line(pixel_coords, pen)
+                                    draw.line(pixel_coords, fill=color, width=max(1, int(width)))
                                 pixel_coords = []
                                 continue
                                 
@@ -336,12 +334,12 @@ class MapDrawer:
                             pixel_coords.extend((u, v))
                         else:
                             if len(pixel_coords) >= 4:
-                                draw.line(pixel_coords, pen)
+                                draw.line(pixel_coords, fill=color, width=max(1, int(width)))
                             pixel_coords = []
                     
                     # Dibujar remanente
                     if len(pixel_coords) >= 4:
-                        draw.line(pixel_coords, pen)
+                        draw.line(pixel_coords, fill=color, width=max(1, int(width)))
             
             elif geom_type in ['Polygon', 'MultiPolygon']:
                 # Para polígonos, dibujar solo los bordes (anillos exteriores)
@@ -362,7 +360,7 @@ class MapDrawer:
                                 res = self._geo2pixel(lon, lat)
                                 if res is None:
                                     if len(pixel_coords) >= 4:
-                                        draw.line(pixel_coords, pen)
+                                        draw.line(pixel_coords, fill=color, width=max(1, int(width)))
                                     pixel_coords = []
                                     continue
                                     
@@ -370,13 +368,11 @@ class MapDrawer:
                                 pixel_coords.extend((u, v))
                             else:
                                 if len(pixel_coords) >= 4:
-                                    draw.line(pixel_coords, pen)
+                                    draw.line(pixel_coords, fill=color, width=max(1, int(width)))
                                 pixel_coords = []
                         
                         if len(pixel_coords) >= 4:
-                            draw.line(pixel_coords, pen)
-
-        draw.flush()
+                            draw.line(pixel_coords, fill=color, width=max(1, int(width)))
 
     # --- Nueva API basada en nombres de capa ---
     def add_layer(self, key, rel_path):
@@ -459,7 +455,7 @@ class MapDrawer:
                 fecha_str = str(timestamp)
             
             # Usar aggdraw para dibujar texto
-            draw = aggdraw.Draw(self.image)
+            draw = ImageDraw.Draw(self.image)
             
             # Crear fuente (aggdraw usa fuentes truetype)
             # Intentar múltiples rutas para compatibilidad Debian/Rocky
@@ -472,18 +468,24 @@ class MapDrawer:
             font = None
             for font_path in font_paths:
                 try:
-                    font = aggdraw.Font(color, font_path, fontsize)
+                    font = ImageFont.truetype(font_path, fontsize)
                     break
                 except (OSError, IOError, RuntimeError):
                     continue
             if font is None:
                 # Si todas fallan, usar fuente por defecto
-                font = aggdraw.Font(color, size=fontsize)
+                # ImageFont.load_default() no escala bien, intentamos buscar una del sistema o fallback
+                try:
+                    font = ImageFont.truetype("DejaVuSans.ttf", fontsize)
+                except IOError:
+                    font = ImageFont.load_default()
             
             # Calcular el tamaño real del texto renderizado
             try:
                 # aggdraw.Draw.textsize() devuelve (width, height) del texto
-                text_width, text_height = draw.textsize(fecha_str, font)
+                left, top, right, bottom = draw.textbbox((0, 0), fecha_str, font=font)
+                text_width = right - left
+                text_height = bottom - top
             except (AttributeError, TypeError):
                 # Fallback: aproximación si textsize no está disponible
                 text_width = len(fecha_str) * int(fontsize * 0.65)
@@ -505,8 +507,7 @@ class MapDrawer:
                 y = margin
             
             # Dibujar el texto
-            draw.text((x, y), fecha_str, font)
-            draw.flush()
+            draw.text((x, y), fecha_str, font=font, fill=color)
             
         except Exception as e:
             print(f"Error dibujando fecha: {e}")
@@ -534,7 +535,7 @@ class MapDrawer:
             return
 
         box_size = box_size or fontsize
-        draw = aggdraw.Draw(self.image)
+        draw = ImageDraw.Draw(self.image)
         
         # Intentar múltiples rutas para compatibilidad Debian/Rocky
         font_paths = [
@@ -544,13 +545,16 @@ class MapDrawer:
         font = None
         for font_path in font_paths:
             try:
-                font = aggdraw.Font(text_color, font_path, fontsize)
+                font = ImageFont.truetype(font_path, fontsize)
                 break
             except (OSError, IOError, RuntimeError):
                 continue
         if font is None:
             # Si todas fallan, usar fuente por defecto
-            font = aggdraw.Font(text_color, size=fontsize)
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", fontsize)
+            except IOError:
+                font = ImageFont.load_default()
 
         # Calcular dimensiones
         text_width = lambda s: int(len(str(s)) * fontsize * 0.6)
@@ -570,12 +574,10 @@ class MapDrawer:
         y1 = y0 + legend_height
 
         # Dibujar fondo
-        brush_bg = aggdraw.Brush(bg_color)
         if border_color:
-            pen_border = aggdraw.Pen(border_color, border_width)
-            draw.rectangle((x0, y0, x1, y1), pen_border, brush_bg)
+            draw.rectangle((x0, y0, x1, y1), fill=bg_color, outline=border_color, width=border_width)
         else:
-            draw.rectangle((x0, y0, x1, y1), None, brush_bg)
+            draw.rectangle((x0, y0, x1, y1), fill=bg_color, outline=None)
 
         # Dibujar filas (cuadro de color + etiqueta)
         cy = y0 + padding
@@ -587,16 +589,14 @@ class MapDrawer:
             by0 = cy + (lh - box_size) // 2
             bx1 = bx0 + box_size
             by1 = by0 + box_size
-            draw.rectangle((bx0, by0, bx1, by1), aggdraw.Pen(color, 1), aggdraw.Brush(color))
+            draw.rectangle((bx0, by0, bx1, by1), fill=color, outline=color)
 
             # Texto de etiqueta
             tx = bx1 + gap
             ty = cy + (lh - fontsize) // 2
-            draw.text((tx, ty), str(label), font)
+            draw.text((tx, ty), str(label), font=font, fill=text_color)
 
             cy += lh
-
-        draw.flush()
 
     def parse_cpt(self, cpt_path):
         """

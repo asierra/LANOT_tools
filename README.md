@@ -1,15 +1,18 @@
-# LANOT_tools — mapdrawer
+# LANOT_tools
 
-Herramientas y utilidades comunes para LANOT (Laboratorio Nacional de Observación de la Tierra)
+Herramientas de procesamiento y visualización para LANOT (Laboratorio Nacional de Observación de la Tierra).
+
+## Contenido
+
+*   **geotiff2view**: Herramienta principal que convierte archivos GeoTIFF a imágenes (PNG/JPEG). Soporta aplicación de paletas de color (CPT), transparencia, y superposición de capas vectoriales y decoraciones (logos, fechas, leyendas).
+*   **mapdrawer**: Utilería y librería base para dibujar mapas y elementos gráficos sobre imágenes existentes.
 
 ## Instalación
 
-### Instalación rápida en servidor (recomendada)
-
-Usa el script de instalación automatizado:
+Para instalación en servidor (recomendada):
 
 ```bash
-cd /ruta/al/LANOT_tools
+cd LANOT_tools
 sudo ./install.sh
 ```
 
