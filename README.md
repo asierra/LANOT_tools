@@ -5,7 +5,7 @@ Herramientas de procesamiento y visualización para LANOT (Laboratorio Nacional 
 ## Contenido
 
 *   **geotiff2view**: Herramienta principal que convierte archivos GeoTIFF a imágenes (PNG/JPEG). Soporta aplicación de paletas de color (CPT), transparencia, y superposición de capas vectoriales y decoraciones (logos, fechas, leyendas).
-*   **mapdrawer**: Utilería y librería base para dibujar mapas y elementos gráficos sobre imágenes existentes.
+*   **mapdrawer**: Utilería y biblioteca base para dibujar mapas y elementos gráficos sobre imágenes existentes.
 
 ## Instalación
 
