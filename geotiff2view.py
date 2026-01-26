@@ -182,11 +182,12 @@ def load_cpt(cpt_path, use_b_for_n=False, force_n=False):
     if not os.path.exists(cpt_path):
         debug_msg(f"Archivo CPT no encontrado: {cpt_path}")
         print(f"Advertencia: CPT {cpt_path} no encontrado.", file=sys.stderr)
-        return None, None, None, 0, 0, 0, {}
+        return None, None, None, 0, 0, 0, {}, False
 
     colors = {}
     special = {}
     labels = {}
+    is_normalized = False
 
     try:
         with open(cpt_path, 'r') as f:
@@ -244,26 +245,40 @@ def load_cpt(cpt_path, use_b_for_n=False, force_n=False):
                 elif n_vals >= 8:
                     v1, r1, g1, b1 = vals[0], vals[1], vals[2], vals[3]
                     v2, r2, g2, b2 = vals[4], vals[5], vals[6], vals[7]
-                    
-                    start_i = int(np.ceil(v1))
-                    end_i = int(np.floor(v2))
-                    span = v2 - v1
-                    
-                    for i in range(start_i, end_i + 1):
-                        if span == 0:
-                            f = 0.0
-                        else:
-                            f = (i - v1) / span
-                        f = max(0.0, min(1.0, f))
-                        
-                        cr = int(r1 + f * (r2 - r1))
-                        cg = int(g1 + f * (g2 - g1))
-                        cb = int(b1 + f * (b2 - b1))
-                        colors[i] = (cr, cg, cb)
+
+                    # Si los valores del CPT están en el rango 0-1, es un CPT normalizado.
+                    # Lo escalamos para generar una paleta de 256 colores.
+                    if v1 >= 0 and v2 <= 1.0 and v1 < v2:
+                        is_normalized = True
+                        start_idx = int(round(v1 * 255))
+                        end_idx = int(round(v2 * 255))
+                        span_val = v2 - v1
+
+                        for i in range(start_idx, end_idx + 1):
+                            # Posición normalizada actual (0-1)
+                            p = i / 255.0
+                            if span_val <= 0:
+                                f = 0.0
+                            else:
+                                f = (p - v1) / span_val
+                            f = max(0.0, min(1.0, f))
+
+                            cr = int(r1 + f * (r2 - r1)); cg = int(g1 + f * (g2 - g1)); cb = int(b1 + f * (b2 - b1))
+                            colors[i] = (cr, cg, cb)
+                    else: # Lógica original para CPTs basados en valores enteros
+                        start_i = int(np.ceil(v1))
+                        end_i = int(np.floor(v2))
+                        span = v2 - v1
+                        for i in range(start_i, end_i + 1):
+                            if span == 0: f = 0.0
+                            else: f = (i - v1) / span
+                            f = max(0.0, min(1.0, f))
+                            cr = int(r1 + f * (r2 - r1)); cg = int(g1 + f * (g2 - g1)); cb = int(b1 + f * (b2 - b1))
+                            colors[i] = (cr, cg, cb)
         
         if not colors:
             debug_msg("No se encontraron colores válidos en el CPT.")
-            return None, None, None, 0, 0, 0, {}
+            return None, None, None, 0, 0, 0, {}, False
 
         # Calcular offset si los valores exceden 255
         min_val = min(colors.keys())
@@ -329,14 +344,15 @@ def load_cpt(cpt_path, use_b_for_n=False, force_n=False):
             palette[f_idx*3+2] = rgb[2]
             debug_msg(f"Color F ({rgb}) asignado al índice {f_idx}")
 
-        return palette, n_idx, f_idx, offset, min_val, max_val, labels
+        return palette, n_idx, f_idx, offset, min_val, max_val, labels, is_normalized
     except Exception as e:
         print(f"Error leyendo CPT: {e}", file=sys.stderr)
-        return None, None, None, 0, 0, 0, {}
+        return None, None, None, 0, 0, 0, {}, False
 
 def normalize_band(band, nodata_val=None):
     """Normaliza una banda numpy a 0-255 (uint8) y devuelve máscara de nodata."""
     data = band.astype(float)
+    debug_msg(f"Normalizando float mínimo {np.nanmin(data)} y máximo {np.nanmax(data)}.")
     mask = np.zeros(data.shape, dtype=bool)
     
     # Detectar NaNs
@@ -371,7 +387,7 @@ def normalize_band(band, nodata_val=None):
     norm = (data - min_val) / (max_val - min_val)
     return (norm * 255).astype(np.uint8), mask
 
-def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, transparent_nodata=False):
+def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, transparent_nodata=False, is_normalized=False):
     """Lee un GeoTIFF y devuelve una imagen PIL."""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Archivo no encontrado: {filepath}")
@@ -416,20 +432,24 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                     if src.nodata is not None:
                         mask |= (band == src.nodata)
                     
-                    # Aplicar offset y convertir
-                    # Usamos nan_to_num para evitar errores con NaNs al restar/castear
-                    data_shifted = np.nan_to_num(band) - offset
-                    
                     # Definir límite superior para no invadir N o F si existen
                     upper_limit = 255
                     if n_idx is not None and n_idx == 255:
                         upper_limit = 254
-                    
                     if f_idx is not None and f_idx <= upper_limit:
                         upper_limit = f_idx - 1
-                        
-                    # Clip para evitar wrap-around (valores > 255 volviéndose 0)
-                    img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
+
+                    # Si el offset es 0 y los datos son float, se asume que son
+                    # datos normalizados (0-1) que deben ser escalados a la paleta.
+                    if offset == 0 and is_normalized:
+                        debug_msg(f"Escalando datos float (0-1) al rango de la paleta (0-{upper_limit})")
+                        # Clip para seguridad, escalar y convertir a entero
+                        scaled_data = np.clip(band, 0.0, 1.0) * upper_limit
+                        img_data = np.nan_to_num(scaled_data, nan=n_idx if n_idx is not None else 0).astype(np.uint8)
+                    else:
+                        # Lógica original para datos float que no son 0-1 (ej. Kelvin)
+                        data_shifted = np.nan_to_num(band) - offset
+                        img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
 
                 else:
                     # Lógica similar para enteros
@@ -441,7 +461,7 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                 if n_idx is not None and mask is not None:
                     img_data[mask] = n_idx
            
-                debug_msg(f"Máximo {np.nanmax(data)} y mínimo {np.nanmin(data)} de la banda.")
+                debug_msg(f"Mínimo {np.nanmin(data)} y máximo {np.nanmax(data)} de la banda.")
                 
                 return Image.fromarray(img_data, 'L'), metadata
             
@@ -572,14 +592,15 @@ def main():
     cpt_max = 0
     labels = {}
     max_idx = None
+    is_normalized = False
     if args.cpt:
-        palette, n_idx, f_idx, offset, cpt_min, cpt_max, labels = load_cpt(args.cpt, use_b_for_n=args.backcolor, force_n=args.alpha)
+        palette, n_idx, f_idx, offset, cpt_min, cpt_max, labels, is_normalized = load_cpt(args.cpt, use_b_for_n=args.backcolor, force_n=args.alpha)
         debug_msg(f"Labels: {labels}")
         if palette:
             max_idx = int(cpt_max - offset)
 
     print(f"Procesando {args.input}...")
-    img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, raw_values=(palette is not None), transparent_nodata=args.alpha)
+    img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, raw_values=(palette is not None), transparent_nodata=args.alpha, is_normalized=is_normalized)
 
     if args.invert:
         if palette and img.mode == 'L':
