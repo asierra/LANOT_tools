@@ -673,7 +673,7 @@ def main():
     # Fecha
     parser.add_argument("--timestamp", help="Texto de la fecha/hora a mostrar.")
     parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3], help="Posición de la fecha (0-3). Si se especifica sin --timestamp, usa fecha actual.")
-    parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5%% del ancho de la imagen)")
+    parser.add_argument("--font-size", type=int, help="Tamaño de fuente (por defecto: 1.5 por ciento del ancho de la imagen)")
     parser.add_argument("--font-color", default="yellow", help="Color de fuente")
     
     # Leyenda
