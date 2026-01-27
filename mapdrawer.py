@@ -61,8 +61,11 @@ GOES_CONUS_EXTENT_METERS = {
     'height': -3006025.93
 }
 
+# Directorio global de recursos (instalación estándar)
+GLOBAL_LANOT_DIR = "/usr/local/share/lanot"
+
 class MapDrawer:
-    def __init__(self, lanot_dir='/usr/local/share/lanot', target_crs=None):
+    def __init__(self, lanot_dir=GLOBAL_LANOT_DIR, target_crs=None):
         """
         Inicializa el dibujante de mapas.
         
