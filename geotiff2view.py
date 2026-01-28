@@ -14,6 +14,7 @@ LANOT - Laboratorio Nacional de Observación de la Tierra
 import os
 import sys
 import argparse
+import json
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import numpy as np
 import math
@@ -86,7 +87,7 @@ def normalize_band(band, nodata_val=None):
     norm = (data - min_val) / (max_val - min_val)
     return (norm * 255).astype(np.uint8), mask
 
-def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, transparent_nodata=False, is_normalized=False):
+def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, transparent_nodata=False, is_normalized=False, autoscale_vals=None):
     """Lee un GeoTIFF y devuelve una imagen PIL."""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Archivo no encontrado: {filepath}")
@@ -138,9 +139,15 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                     if f_idx is not None and f_idx <= upper_limit:
                         upper_limit = f_idx - 1
 
+                    if autoscale_vals is not None:
+                        cpt_min, cpt_max = autoscale_vals
+                        debug_msg(f"Auto-escalando datos normalizados (0-1) al rango {cpt_min}-{cpt_max}")
+                        scaled_data = band * (cpt_max - cpt_min) + cpt_min
+                        data_shifted = np.nan_to_num(scaled_data) - offset
+                        img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
                     # Si el offset es 0 y los datos son float, se asume que son
                     # datos normalizados (0-1) que deben ser escalados a la paleta.
-                    if offset == 0 and is_normalized:
+                    elif offset == 0 and is_normalized:
                         debug_msg(f"Escalando datos float (0-1) al rango de la paleta (0-{upper_limit})")
                         # Clip para seguridad, escalar y convertir a entero
                         scaled_data = np.clip(band, 0.0, 1.0) * upper_limit
@@ -207,8 +214,14 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
             if raw_values:
                 # Modo raw: intentar preservar valores enteros aplicando offset
                 # Similar a la lógica de rasterio
-                data_shifted = np.nan_to_num(arr) - offset
-                
+                if autoscale_vals is not None:
+                    cpt_min, cpt_max = autoscale_vals
+                    arr_float = arr.astype(float)
+                    scaled_data = arr_float * (cpt_max - cpt_min) + cpt_min
+                    data_shifted = np.nan_to_num(scaled_data) - offset
+                else:
+                    data_shifted = np.nan_to_num(arr) - offset
+
                 upper_limit = 255
                 if n_idx is not None and n_idx == 255:
                     upper_limit = 254
@@ -266,7 +279,9 @@ def main():
     parser.add_argument("--font-color", default="yellow", help="Color de la fuente del timestamp")
     parser.add_argument("--legend-pos", type=int, choices=[0, 1, 2, 3], help="Posición de la leyenda (0-3)")
     parser.add_argument("--jpeg", "-j", action="store_true", help="Guardar salida en formato JPEG (por defecto PNG)")
+    parser.add_argument("--save-metadata", help="Guardar metadatos (CRS, bounds, timestamp) en un archivo JSON.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Mostrar mensajes de depuración")
+    parser.add_argument("--autoscale", action="store_true", help="Forzar escalado de datos normalizados (0-1) al rango de la paleta.")
     
     args = parser.parse_args()
     VERBOSE = args.verbose
@@ -312,6 +327,7 @@ def main():
     offset = 0
     max_idx = None
     is_normalized = False
+    autoscale_vals = None
 
     if args.cpt:
         cpt_path = args.cpt
@@ -330,6 +346,9 @@ def main():
         debug_msg(f"Labels: {cpt_obj.labels}")
         if palette:
             max_idx = int(cpt_obj.max_val - offset)
+            
+        if args.autoscale:
+            autoscale_vals = (cpt_obj.min_val, cpt_obj.max_val)
 
     if len(input_files) == 3:
         print(f"Modo RGB: Procesando 3 archivos...")
@@ -373,7 +392,28 @@ def main():
             img.putalpha(Image.fromarray(alpha, 'L'))
     else:
         print(f"Procesando {args.input}...")
-        img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, raw_values=(palette is not None), transparent_nodata=args.alpha, is_normalized=is_normalized)
+        img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, raw_values=(palette is not None), transparent_nodata=args.alpha, is_normalized=is_normalized, autoscale_vals=autoscale_vals)
+
+    # Guardar metadatos externos si se solicita
+    if args.save_metadata:
+        meta_export = {}
+        if 'crs' in metadata:
+            meta_export['crs'] = metadata['crs']
+        if 'bounds' in metadata:
+            # rasterio bounds: left, bottom, right, top -> [minx, miny, maxx, maxy]
+            meta_export['bounds'] = list(metadata['bounds'])
+        if 'timestamp' in metadata:
+            meta_export['timestamp'] = metadata['timestamp']
+        if 'satellite' in metadata:
+            meta_export['satellite'] = metadata['satellite']
+            
+        try:
+            with open(args.save_metadata, 'w') as f:
+                json.dump(meta_export, f, indent=2)
+            if VERBOSE:
+                print(f"Metadatos guardados en {args.save_metadata}")
+        except Exception as e:
+            print(f"Error guardando metadatos: {e}", file=sys.stderr)
 
     if args.invert:
         if palette and img.mode == 'L':
