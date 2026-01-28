@@ -125,12 +125,55 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                 # Asumimos banda única o tomamos la primera
                 band = data[0]
                 
+                # Detectar scale/offset del TIFF para conversión a valores físicos
+                tiff_scale = 1.0
+                tiff_offset = 0.0
+                
+                if src.scales and src.scales[0] is not None:
+                    tiff_scale = src.scales[0]
+                if src.offsets and src.offsets[0] is not None:
+                    tiff_offset = src.offsets[0]
+                
+                # Fallback a tags si no están en propiedades estándar
+                if tiff_scale == 1.0 and tiff_offset == 0.0:
+                    tags = src.tags()
+                    if 'scale' in tags:
+                        try: tiff_scale = float(tags['scale'])
+                        except: pass
+                    if 'offset' in tags:
+                        try: tiff_offset = float(tags['offset'])
+                        except: pass
+                
+                is_scaled = (tiff_scale != 1.0 or tiff_offset != 0.0)
+                if is_scaled:
+                    debug_msg(f"Aplicando escala TIFF: {tiff_scale} y offset: {tiff_offset}")
+
                 # Manejo de NoData / NaN
                 mask = None
-                if np.issubdtype(band.dtype, np.floating):
-                    mask = np.isnan(band)
+                
+                # Si es float o tiene escala, procesamos como float (valores físicos)
+                if np.issubdtype(band.dtype, np.floating) or is_scaled:
+                    band_float = band.astype(float)
+                    
+                    # Determinar máscara de nodata sobre valores crudos
                     if src.nodata is not None:
-                        mask |= (band == src.nodata)
+                        if np.issubdtype(band.dtype, np.floating):
+                            mask = np.isclose(band, src.nodata) | np.isnan(band)
+                        else:
+                            mask = (band == src.nodata)
+                    else:
+                        if np.issubdtype(band.dtype, np.floating):
+                            mask = np.isnan(band)
+                        else:
+                            mask = np.zeros(band.shape, dtype=bool)
+
+                    # Aplicar escala si existe
+                    if is_scaled:
+                        # Ponemos NaN en nodata para evitar cálculos erróneos
+                        band_float[mask] = np.nan
+                        band_phys = band_float * tiff_scale + tiff_offset
+                    else:
+                        band_phys = band_float
                     
                     # Definir límite superior para no invadir N o F si existen
                     upper_limit = 255
@@ -142,7 +185,7 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                     if autoscale_vals is not None:
                         cpt_min, cpt_max = autoscale_vals
                         debug_msg(f"Auto-escalando datos normalizados (0-1) al rango {cpt_min}-{cpt_max}")
-                        scaled_data = band * (cpt_max - cpt_min) + cpt_min
+                        scaled_data = band_phys * (cpt_max - cpt_min) + cpt_min
                         data_shifted = np.nan_to_num(scaled_data) - offset
                         img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
                     # Si el offset es 0 y los datos son float, se asume que son
@@ -150,15 +193,15 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                     elif offset == 0 and is_normalized:
                         debug_msg(f"Escalando datos float (0-1) al rango de la paleta (0-{upper_limit})")
                         # Clip para seguridad, escalar y convertir a entero
-                        scaled_data = np.clip(band, 0.0, 1.0) * upper_limit
+                        scaled_data = np.clip(band_phys, 0.0, 1.0) * upper_limit
                         img_data = np.nan_to_num(scaled_data, nan=n_idx if n_idx is not None else 0).astype(np.uint8)
                     else:
                         # Lógica original para datos float que no son 0-1 (ej. Kelvin)
-                        data_shifted = np.nan_to_num(band) - offset
+                        data_shifted = np.nan_to_num(band_phys) - offset
                         img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
 
                 else:
-                    # Lógica similar para enteros
+                    # Lógica similar para enteros SIN escala
                     data_shifted = band.astype(int) - offset
                     img_data = np.clip(data_shifted, 0, 255).astype(np.uint8)
                     if src.nodata is not None:
@@ -167,7 +210,7 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                 if n_idx is not None and mask is not None:
                     img_data[mask] = n_idx
            
-                debug_msg(f"Mínimo {np.nanmin(data)} y máximo {np.nanmax(data)} de la banda.")
+                debug_msg(f"Mínimo {np.nanmin(data)} y máximo {np.nanmax(data)} de la banda (crudo).")
                 
                 return Image.fromarray(img_data, 'L'), metadata
             
