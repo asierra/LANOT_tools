@@ -87,7 +87,7 @@ def normalize_band(band, nodata_val=None):
     norm = (data - min_val) / (max_val - min_val)
     return (norm * 255).astype(np.uint8), mask
 
-def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, transparent_nodata=False, is_normalized=False, autoscale_vals=None):
+def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, scale_factor=1.0, raw_values=False, transparent_nodata=False, is_normalized=False, autoscale_vals=None):
     """Lee un GeoTIFF y devuelve una imagen PIL."""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Archivo no encontrado: {filepath}")
@@ -197,7 +197,7 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                         img_data = np.nan_to_num(scaled_data, nan=n_idx if n_idx is not None else 0).astype(np.uint8)
                     else:
                         # Lógica original para datos float que no son 0-1 (ej. Kelvin)
-                        data_shifted = np.nan_to_num(band_phys) - offset
+                        data_shifted = (np.nan_to_num(band_phys) - offset) * scale_factor
                         img_data = np.clip(data_shifted, 0, upper_limit).astype(np.uint8)
 
                 else:
@@ -261,9 +261,9 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, raw_values=False, t
                     cpt_min, cpt_max = autoscale_vals
                     arr_float = arr.astype(float)
                     scaled_data = arr_float * (cpt_max - cpt_min) + cpt_min
-                    data_shifted = np.nan_to_num(scaled_data) - offset
+                    data_shifted = (np.nan_to_num(scaled_data) - offset) * scale_factor
                 else:
-                    data_shifted = np.nan_to_num(arr) - offset
+                    data_shifted = (np.nan_to_num(arr) - offset) * scale_factor
 
                 upper_limit = 255
                 if n_idx is not None and n_idx == 255:
@@ -368,6 +368,7 @@ def main():
     n_idx = None
     f_idx = None
     offset = 0
+    scale_factor = 1.0
     max_idx = None
     is_normalized = False
     autoscale_vals = None
@@ -385,10 +386,11 @@ def main():
         n_idx = cpt_obj.n_idx
         f_idx = cpt_obj.f_idx
         offset = cpt_obj.offset
+        scale_factor = getattr(cpt_obj, 'scale_factor', 1.0)
         is_normalized = cpt_obj.is_normalized
         debug_msg(f"Labels: {cpt_obj.labels}")
         if palette:
-            max_idx = int(cpt_obj.max_val - offset)
+            max_idx = int((cpt_obj.max_val - offset) * scale_factor)
             
         if args.autoscale:
             autoscale_vals = (cpt_obj.min_val, cpt_obj.max_val)
@@ -411,7 +413,7 @@ def main():
         for idx, fpath in enumerate(resolved_files):
             print(f"  Cargando canal {['R','G','B'][idx]}: {fpath}")
             # Cargar normalizado (0-255) ignorando paleta
-            ch_img, ch_meta = load_geotiff(fpath, offset=offset, raw_values=False, transparent_nodata=False, is_normalized=is_normalized)
+            ch_img, ch_meta = load_geotiff(fpath, offset=offset, scale_factor=scale_factor, raw_values=False, transparent_nodata=False, is_normalized=is_normalized)
             
             if ch_img.mode != 'L':
                 ch_img = ch_img.convert('L')
@@ -435,7 +437,7 @@ def main():
             img.putalpha(Image.fromarray(alpha, 'L'))
     else:
         print(f"Procesando {args.input}...")
-        img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, raw_values=(palette is not None), transparent_nodata=args.alpha, is_normalized=is_normalized, autoscale_vals=autoscale_vals)
+        img, metadata = load_geotiff(args.input, n_idx=n_idx, f_idx=f_idx, offset=offset, scale_factor=scale_factor, raw_values=(palette is not None), transparent_nodata=args.alpha, is_normalized=is_normalized, autoscale_vals=autoscale_vals)
 
     # Guardar metadatos externos si se solicita
     if args.save_metadata:
@@ -449,6 +451,8 @@ def main():
             meta_export['timestamp'] = metadata['timestamp']
         if 'satellite' in metadata:
             meta_export['satellite'] = metadata['satellite']
+        if cpt_obj and getattr(cpt_obj, 'units', None):
+            meta_export['units'] = cpt_obj.units
             
         try:
             with open(args.save_metadata, 'w') as f:

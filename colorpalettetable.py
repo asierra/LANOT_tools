@@ -18,9 +18,11 @@ class ColorPaletteTable:
         self.min_val = 0
         self.max_val = 0
         self.offset = 0
+        self.scale_factor = 1.0
         self.n_idx = None      # Índice para NoData
         self.f_idx = None      # Índice para Foreground
         self.palette_size = 256
+        self.units = None
         self.palette = None    # Lista plana para PIL [r,g,b, ...]
         
         if path:
@@ -38,12 +40,23 @@ class ColorPaletteTable:
         self.special = {}
         self.labels = {}
         self.is_normalized = False
+        self.units = None
+        self.segments = []
 
         try:
             with open(path, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    if not line or line.startswith("#"):
+                    if not line:
+                        continue
+                    
+                    if line.startswith("#"):
+                        # Check for metadata comments like # UNIT = K
+                        if "UNIT" in line:
+                            try:
+                                self.units = line.split('=')[1].strip()
+                            except IndexError:
+                                pass # Malformed UNIT line
                         continue
                     
                     label_text = None
@@ -89,60 +102,83 @@ class ColorPaletteTable:
                     elif n_vals >= 8:
                         v1, r1, g1, b1 = vals[0], vals[1], vals[2], vals[3]
                         v2, r2, g2, b2 = vals[4], vals[5], vals[6], vals[7]
+                        self.segments.append((v1, r1, g1, b1, v2, r2, g2, b2))
 
-                        if v1 >= 0 and v2 <= 1.0 and v1 < v2:
-                            self.is_normalized = True
-                            start_idx = int(round(v1 * 255))
-                            end_idx = int(round(v2 * 255))
-                            span_val = v2 - v1
-
-                            for i in range(start_idx, end_idx + 1):
-                                p = i / 255.0
-                                f = 0.0 if span_val <= 0 else (p - v1) / span_val
-                                f = max(0.0, min(1.0, f))
-                                cr = int(r1 + f * (r2 - r1)); cg = int(g1 + f * (g2 - g1)); cb = int(b1 + f * (b2 - b1))
-                                self.colors[i] = (cr, cg, cb)
-                        else:
-                            start_i = int(np.ceil(v1))
-                            end_i = int(np.floor(v2))
+            # Procesar segmentos continuos si existen
+            if self.segments:
+                self.min_val = min(s[0] for s in self.segments)
+                self.max_val = max(s[4] for s in self.segments)
+                
+                # Detectar si es normalizada (0-1)
+                if self.min_val >= 0 and self.max_val <= 1.0:
+                    self.is_normalized = True
+                    self.offset = 0
+                    self.scale_factor = 255.0
+                else:
+                    # Caso continuo físico (ej. Kelvin): Escalar al rango completo 0-255
+                    self.offset = self.min_val
+                    
+                    # Determinar espacio reservado para N y F
+                    has_n = 'N' in self.special or (use_b_for_n and 'B' in self.special) or force_n
+                    has_f = 'F' in self.special
+                    
+                    limit = 255
+                    if has_n: limit -= 1
+                    if has_f: limit -= 1
+                    
+                    # Calcular factor de escala para llenar el espacio disponible
+                    if self.max_val > self.min_val:
+                        self.scale_factor = float(limit) / (self.max_val - self.min_val)
+                    
+                # Generar paleta densa (0-255)
+                self.palette = [0] * 768
+                self.palette_size = 256
+                
+                # Rellenar gradiente
+                for i in range(256):
+                    # Calcular valor físico correspondiente a este índice
+                    val = self.min_val + (i / self.scale_factor) if self.scale_factor > 0 else self.min_val
+                    
+                    # Buscar segmento y interpolar
+                    r, g, b = 0, 0, 0
+                    for v1, r1, g1, b1, v2, r2, g2, b2 in self.segments:
+                        if v1 <= val <= v2:
                             span = v2 - v1
-                            for i in range(start_i, end_i + 1):
-                                f = 0.0 if span == 0 else (i - v1) / span
-                                f = max(0.0, min(1.0, f))
-                                cr = int(r1 + f * (r2 - r1)); cg = int(g1 + f * (g2 - g1)); cb = int(b1 + f * (b2 - b1))
-                                self.colors[i] = (cr, cg, cb)
+                            f = 0.0 if span == 0 else (val - v1) / span
+                            f = max(0.0, min(1.0, f))
+                            r = int(r1 + f * (r2 - r1))
+                            g = int(g1 + f * (g2 - g1))
+                            b = int(b1 + f * (b2 - b1))
+                            break
+                    
+                    self.palette[i*3] = r
+                    self.palette[i*3+1] = g
+                    self.palette[i*3+2] = b
             
-            if not self.colors:
+            if not self.colors and not self.segments:
                 return
 
-            self.min_val = min(self.colors.keys())
-            self.max_val = max(self.colors.keys())
-            self.offset = 0
-            
-            if self.max_val > 255:
-                self.offset = int(self.min_val)
+            # Lógica para paletas discretas (solo si no hay segmentos continuos)
+            if not self.segments:
+                self.min_val = min(self.colors.keys())
+                self.max_val = max(self.colors.keys())
+                self.offset = 0
+                
+                if self.max_val > 255:
+                    self.offset = int(self.min_val)
+                    
+                # Generar lista plana para PIL (Lógica original discreta)
+                self.palette = [0] * 768
+                for val, rgb in self.colors.items():
+                    idx = int(val - self.offset)
+                    if 0 <= idx < 256:
+                        self.palette[idx*3] = rgb[0]
+                        self.palette[idx*3+1] = rgb[1]
+                        self.palette[idx*3+2] = rgb[2]
 
+            # Aplicar colores especiales (N, F, B)
             has_n = 'N' in self.special or (use_b_for_n and 'B' in self.special) or force_n
             has_f = 'F' in self.special
-            
-            shifted_max = self.max_val - self.offset
-            self.palette_size = 256
-            for size in [2, 4, 16, 256]:
-                reserved = 0
-                if has_n: reserved = 1
-                if has_f: reserved = max(reserved, 2)
-                if shifted_max < (size - reserved):
-                    self.palette_size = size
-                    break
-            
-            # Generar lista plana para PIL
-            self.palette = [0] * 768
-            for val, rgb in self.colors.items():
-                idx = int(val - self.offset)
-                if 0 <= idx < 256:
-                    self.palette[idx*3] = rgb[0]
-                    self.palette[idx*3+1] = rgb[1]
-                    self.palette[idx*3+2] = rgb[2]
             
             if has_n:
                 self.n_idx = self.palette_size - 1
@@ -173,7 +209,7 @@ class ColorPaletteTable:
         if self.f_idx is not None and self.f_idx <= upper_limit:
             upper_limit = self.f_idx - 1
             
-        scaled = np.clip(data - self.offset, 0, upper_limit).astype(np.uint8)
+        scaled = np.clip((data - self.offset) * self.scale_factor, 0, upper_limit).astype(np.uint8)
         return scaled
 
     def draw_legend(self, draw, x, y, width, height, font_size=12, color='white'):
@@ -182,7 +218,7 @@ class ColorPaletteTable:
             return
 
         # Dibujar barra de colores
-        max_idx = int(self.max_val - self.offset)
+        max_idx = int((self.max_val - self.offset) * self.scale_factor)
         self._draw_colorbar(draw, x, y, width, height, max_index=max_idx)
         
         # Dibujar etiquetas o valores
@@ -199,20 +235,25 @@ class ColorPaletteTable:
         num_colors = min(max_index + 1, total_colors) if max_index is not None else total_colors
         if num_colors <= 0: return
 
-        step = width / num_colors
         mode = draw.im.mode
 
-        for i in range(num_colors):
-            x0 = x + i * step
-            x1 = x + (i + 1) * step
-            
+        # Iterar sobre cada píxel horizontal del ancho de la barra de color
+        for i in range(int(width)):
+            # Mapear la posición del píxel a un índice de color en la paleta
+            # Esto convierte la posición (0 a width-1) a un índice (0 a num_colors-1)
+            color_idx = int((i / width) * num_colors)
+            # Asegurarse de que el índice no se salga del rango
+            color_idx = min(color_idx, num_colors - 1)
+
+            px = x + i
+
             if mode == 'P' or mode == 'L':
-                draw.rectangle([x0, y, x1, y + height], fill=i)
+                # Para imágenes con paleta, dibujar con el índice de color
+                draw.line([px, y, px, y + height], fill=color_idx)
             else:
-                r = self.palette[i*3]
-                g = self.palette[i*3+1]
-                b = self.palette[i*3+2]
-                draw.rectangle([x0, y, x1, y + height], fill=(r, g, b))
+                # Para imágenes RGB, obtener el color de la paleta y dibujar
+                r, g, b = self.palette[color_idx*3 : color_idx*3+3]
+                draw.line([px, y, px, y + height], fill=(r, g, b))
 
     def _draw_value_row(self, draw, x0, y, width, min_val, max_val, num_intermedios, color, font_size):
         step, min_tmp, lista_valores = self._generar_lista_alineada(min_val, max_val, num_intermedios)
@@ -221,9 +262,30 @@ class ColorPaletteTable:
         except IOError:
             font = ImageFont.load_default()
 
+        def get_w(text):
+            try:
+                l, t, r, b = draw.textbbox((0, 0), text, font=font)
+                return r - l
+            except AttributeError:
+                w, h = draw.textsize(text, font=font)
+                return w
+
+        items = []
         for value in lista_valores:
             x = x0 + (value - min_val) * width / (max_val - min_val)
-            draw.text((x, y), str(value), fill=color, font=font)
+            items.append({'text': str(value), 'x': x})
+
+        if self.units:
+            unit_w = get_w(self.units)
+            unit_x = x0 + width - unit_w - 2  # Alinear a la derecha
+            if items:
+                last = items[-1]
+                if last['x'] + get_w(last['text']) > unit_x - 5:
+                    items.pop()  # Quitar último número si no hay espacio
+            items.append({'text': self.units, 'x': unit_x})
+
+        for item in items:
+            draw.text((item['x'], y), item['text'], fill=color, font=font)
 
     def _draw_label_row(self, draw, x0, y, width, min_val, max_val, offset, labels, color, font_size):
         try:
@@ -236,16 +298,33 @@ class ColorPaletteTable:
         if num_slots <= 0: return
         step = width / num_slots
         
-        for val, label in labels.items():
+        def get_w(text):
+            try:
+                l, t, r, b = draw.textbbox((0, 0), text, font=font)
+                return r - l
+            except AttributeError:
+                w, h = draw.textsize(text, font=font)
+                return w
+
+        items = []
+        for val, label in sorted(labels.items()):
             idx = int(val - offset)
             if 0 <= idx <= max_idx:
                 center_x = x0 + idx * step + step / 2
-                try:
-                    l, t, r, b = draw.textbbox((0, 0), str(label), font=font)
-                    w_text = r - l
-                except AttributeError:
-                    w_text, h_text = draw.textsize(str(label), font=font)
-                draw.text((center_x - w_text / 2, y), str(label), fill=color, font=font)
+                text = str(label)
+                items.append({'text': text, 'x': center_x - get_w(text) / 2})
+
+        if self.units:
+            unit_w = get_w(self.units)
+            unit_x = x0 + width - unit_w - 2
+            if items:
+                last = items[-1]
+                if last['x'] + get_w(last['text']) > unit_x - 5:
+                    items.pop()
+            items.append({'text': self.units, 'x': unit_x})
+
+        for item in items:
+            draw.text((item['x'], y), item['text'], fill=color, font=font)
 
     def _obtener_paso_redondo(self, raw_step):
         if raw_step <= 0: return 0

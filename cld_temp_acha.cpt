@@ -1,5 +1,6 @@
 # cld_temp_acha.cpt 
 # CPT discret Cloud-top Temperature from AWG Cloud Height Algorithm (10 clases)
+# UNIT = K
 # COLOR_MODEL = RGB
 # Value R G B   Value R G B     # Label
 180   255 255 255    190   255 255 255

@@ -1,5 +1,6 @@
 # sst.cpt
-# Continuous Sea Surface Temperature (10 intervals)
+# Sea Surface Temperature
+# UNIT = K
 # COLOR_MODEL = RGB
 268   222 108 253    272   134   0 239
 272   134   0 239    276    89  72 234
