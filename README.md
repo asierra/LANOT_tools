@@ -1,219 +1,139 @@
 # LANOT_tools
 
-Herramientas de procesamiento y visualización para LANOT (Laboratorio Nacional de Observación de la Tierra).
+Suite de procesamiento y visualización de imágenes satelitales GeoTIFF para LANOT (Laboratorio Nacional de Observación de la Tierra).
 
-## Contenido
+## Descripción
 
-*   **geotiff2view**: Herramienta principal que convierte archivos GeoTIFF a imágenes (PNG/JPEG). Soporta aplicación de paletas de color (CPT), transparencia, y superposición de capas vectoriales y decoraciones (logos, fechas, leyendas).
-*   **mapdrawer**: Utilería y biblioteca base para dibujar mapas y elementos gráficos sobre imágenes existentes.
+LANOT_tools proporciona cuatro módulos integrados para el procesamiento de datos satelitales:
+
+- **geotiff2view.py** - Convierte GeoTIFF a imágenes visualizables (PNG/JPEG) con paletas de color (CPT), composiciones RGB y transparencia NoData
+- **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas y timestamps sobre imágenes con soporte para proyecciones GOES/EPSG
+- **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos
+- **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación
 
 ## Instalación
 
-Para instalación en servidor (recomendada):
+### Instalación en servidor (recomendada)
 
 ```bash
-cd LANOT_tools
 sudo ./install.sh
 ```
 
-El script:
-- ✅ Crea virtualenv en `/opt/lanot-tools/venv`
-- ✅ Instala el paquete y todas sus dependencias
-- ✅ Crea el comando `mapdrawer` accesible globalmente
-- ✅ Verifica que la instalación funcione correctamente
+Instala en `/opt/lanot-tools/` con virtualenv aislado y crea comandos globales en `/usr/local/bin/`:
+- `geotiff2view` - Conversión GeoTIFF a imagen
+- `mapdrawer` - Post-procesamiento de imágenes
 
-**Para desinstalar:**
+**Desinstalar:**
 ```bash
-cd /ruta/al/LANOT_tools
 sudo ./uninstall.sh
 ```
 
-### Instalación manual en servidor
-
-Si prefieres instalar manualmente:
+### Modo desarrollo
 
 ```bash
-# 1. Crear directorio para la instalación
-sudo mkdir -p /opt/lanot-tools
-
-# 2. Copiar el código fuente
-sudo cp -r /ruta/al/LANOT_tools /opt/lanot-tools/src
-
-# 3. Crear virtualenv
-sudo python3 -m venv /opt/lanot-tools/venv
-
-# 4. Instalar el paquete en el virtualenv
-sudo /opt/lanot-tools/venv/bin/pip install --upgrade pip
-sudo /opt/lanot-tools/venv/bin/pip install /opt/lanot-tools/src
-
-# 5. Crear el wrapper script en /usr/local/bin
-sudo tee /usr/local/bin/mapdrawer << 'EOF'
-#!/bin/bash
-# Wrapper para mapdrawer - ejecuta desde virtualenv
-VENV_DIR="/opt/lanot-tools/venv"
-exec "${VENV_DIR}/bin/mapdrawer" "$@"
-EOF
-
-# 6. Dar permisos de ejecución
-sudo chmod +x /usr/local/bin/mapdrawer
-
-# 7. Verificar instalación
-mapdrawer --help
-```
-
-**Ventajas:**
-- ✅ Accesible para todos los usuarios del sistema
-- ✅ Dependencias aisladas en virtualenv
-- ✅ No contamina el Python del sistema
-- ✅ Fácil de actualizar y desinstalar
-
-**Para actualizar después de modificar el código:**
-
-Opción 1 - Rápida (solo archivos modificados):
-```bash
-sudo cp /ruta/al/LANOT_tools/mapdrawer.py /opt/lanot-tools/src/
-sudo /opt/lanot-tools/venv/bin/pip install --upgrade --force-reinstall /opt/lanot-tools/src
-```
-
-Opción 2 - Completa (volver a ejecutar instalación):
-```bash
-cd /ruta/al/LANOT_tools
-sudo ./install.sh
-```
-
-Opción 3 - Modo desarrollo (cambios se reflejan automáticamente):
-```bash
-sudo /opt/lanot-tools/venv/bin/pip uninstall lanot-tools
-sudo /opt/lanot-tools/venv/bin/pip install -e /ruta/al/LANOT_tools
-```
-Con `-e` los cambios en el código fuente se reflejan inmediatamente sin reinstalar.
-
-### Instalación en modo desarrollo (para desarrollo activo)
-```bash
-cd /ruta/al/LANOT_tools
 pip install -e .
 ```
 
-### Instalación para usuario individual
-```bash
-cd /ruta/al/LANOT_tools
-pip install --user .
-```
-Asegúrate de que `~/.local/bin` esté en tu PATH.
+Los cambios en el código se reflejan inmediatamente sin reinstalar
 
-### Instalación desde GitHub (si el repositorio es público)
-```bash
-pip install git+https://github.com/asierra/LANOT_tools.git
-```
+## Uso rápido
 
-## Uso
-
-### Como comando de terminal
-Después de la instalación, puedes usar `mapdrawer` directamente desde la terminal:
+### Procesamiento completo: GeoTIFF → Imagen con mapa
 
 ```bash
-# Ejemplo básico con bounds
-mapdrawer imagen.png --bounds -120 35 -80 15 --layer COASTLINE:blue:0.5
+# Imagen con paleta de temperatura y overlay de costa
+geotiff2view datos.tif --cpt sst.cpt --alpha \
+  --layer COASTLINE:white:1.0 \
+  --logo-pos 3 --timestamp-pos 0 \
+  -o salida.png
 
-# Usando región predefinida
-mapdrawer imagen.png --recorte conus --layer COASTLINE:yellow:0.5 --logo-pos 3
-
-# Con proyección GOES y leyenda
-mapdrawer imagen.png --recorte fulldisk --crs goes16 \
-    --layer COASTLINE:white:1.0 \
-    --layer COUNTRIES:gray:0.5 \
-    --logo-pos 3 --cpt leyenda.cpt \
-    --output salida.png
+# Composición RGB con capas vectoriales
+geotiff2view banda_roja.tif banda_verde.tif banda_azul.tif \
+  --layer COASTLINE:yellow:1.0 --layer COUNTRIES:gray:0.5 \
+  --recorte conus --crs goes16 -o rgb_composite.png
 ```
 
-### Como módulo Python
+### Post-procesamiento de imágenes existentes
+
+```bash
+# Agregar overlays a imagen sin metadata GeoTIFF
+mapdrawer imagen.png --metadata metadata.json \
+  --layer COASTLINE:blue:1.0 \
+  --logo-pos 3 --timestamp "2026-01-30 12:00 UTC" \
+  -o output.png
+```
+
+### Como biblioteca Python
+
 ```python
-from lanot_tools import MapDrawer
+from lanot_tools import MapDrawer, Metadata
 from PIL import Image
+import rasterio
 
-# Abrir imagen
-img = Image.open("mi_imagen.png")
+# Cargar GeoTIFF y extraer metadata
+with rasterio.open("datos.tif") as src:
+    metadata = Metadata.from_rasterio(src)
+    img = Image.open("datos.tif")
 
-# Crear drawer con proyección GOES-16
+# Configurar mapa con proyección
 mapper = MapDrawer(target_crs='goes16')
 mapper.set_image(img)
 
-# Establecer límites (o usar región predefinida)
-mapper.load_bounds_from_csv('fulldisk')
+# Usar bounds del metadata
+ulx, uly, lrx, lry = metadata.get_mapdrawer_bounds()
+mapper.set_bounds(ulx, uly, lrx, lry)
 
-# Dibujar capas
-mapper.draw_layer('COASTLINE', color='white', width=1.0)
-mapper.draw_layer('COUNTRIES', color='gray', width=0.5)
+# Dibujar capas y decoraciones
+mapper.draw_layer('COASTLINE', 'white', 1.0)
+mapper.draw_logo(position=3)
+mapper.draw_fecha(metadata.get('timestamp'), position=0)
 
-# Agregar logo y fecha
-mapper.draw_logo(logosize=128, position=3)
-
-from datetime import datetime
-mapper.draw_fecha(datetime.utcnow(), position=2, fontsize=20)
-
-# Guardar
-img.save("salida.png")
+img.save("output.png")
 ```
 
-## Características
+## Características principales
 
-- **Proyecciones**: Soporta proyecciones GOES (goes16, goes17, goes18, goes19) y cualquier proyección EPSG vía pyproj
-- **Regiones predefinidas**: CONUS, Full Disk, y regiones personalizadas vía CSV
-- **Capas vectoriales**: Soporte para GeoPackage (.gpkg) - líneas costeras, fronteras de países, estados de México
-- **Decoraciones**: Logo LANOT, fecha/hora, leyendas desde archivos CPT
-- **Optimizado**: Caché de archivos vectoriales, clipping inteligente para rendimiento
+- **Proyecciones satelitales**: GOES-16/17/18/19, EPSG y Proj4 strings via pyproj
+- **Paletas de color**: CPT continuos y discretos con soporte para valores especiales (NoData, background, foreground)
+- **Manejo de NoData**: Transparencia automática y máscaras en composiciones RGB
+- **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
+- **Metadata flexible**: Extracción automática de GeoTIFF o JSON sidecar
+- **Regiones predefinidas**: `conus`, `fulldisk` para recortes rápidos
 
-## Opciones de línea de comandos
+## Paletas CPT incluidas
 
-```
-mapdrawer <imagen_entrada> [opciones]
-
-Límites geográficos:
-  --bounds ULX ULY LRX LRY    Límites manualmente (lon/lat)
-  --recorte NOMBRE            Región predefinida (conus, fulldisk, etc.)
-
-Proyección:
-  --crs SISTEMA               Sistema de coordenadas (goes16, epsg:4326, etc.)
-
-Capas:
-  --layer NOMBRE:COLOR:GROSOR Dibujar capa (ej: COASTLINE:blue:0.5)
-                              Puede usarse múltiples veces
-
-Logo:
-  --logo-pos {0,1,2,3}        Posición del logo (0=UL, 1=UR, 2=LL, 3=LR)
-  --logo-size PIXELES         Tamaño del logo
-
-Fecha:
-  --timestamp TEXTO           Texto de fecha/hora
-  --timestamp-pos {0,1,2,3}   Posición de la fecha
-  --font-size TAMAÑO          Tamaño de fuente
-  --font-color COLOR          Color de fuente
-
-Leyenda:
-  --cpt ARCHIVO               Archivo CPT para generar leyenda
-
-Salida:
-  --output ARCHIVO            Archivo de salida (default: sobreescribe entrada)
-```
+- `sst.cpt` - Temperatura superficial del mar (268-310K, continuo)
+- `cld_temp_acha.cpt` - Temperatura cloud-top (180-295K, 10 clases discretas)
+- `phase.cpt` - Fase de nubes (0-5: clear/water/supercooled/mixed/ice/unknown)
+- `rainbow.cpt` - Gradiente normalizado (0.0-1.0)
 
 ## Requisitos
 
 - Python >= 3.8
-- Pillow
-- aggdraw
-- fiona
-- pyproj
-- numpy
+- **Requeridos**: Pillow, fiona, pyproj, numpy
+- **Opcionales**: rasterio (lectura GeoTIFF con metadata, altamente recomendado)
 
-## Estructura del Proyecto
+## Recursos del sistema
+
+Después de la instalación se crean:
+- Ejecutables: `/opt/lanot-tools/venv/`
+- Comandos globales: `/usr/local/bin/{geotiff2view,mapdrawer}`
+- Paletas CPT: `/usr/local/share/lanot/colortables/`
+- Capas vectoriales: `/usr/local/share/lanot/gpkg/`
+- Logos: `/usr/local/share/lanot/logos/`
+
+## Estructura del proyecto
 
 ```
 LANOT_tools/
-├── __init__.py              # Exporta MapDrawer
-├── mapdrawer.py            # Clase principal
-├── setup.py                # Configuración de instalación
-├── requirements.txt        # Dependencias
-└── README.md              # Este archivo
+├── geotiff2view.py           # CLI: GeoTIFF → imagen
+├── mapdrawer.py             # CLI: overlays sobre imágenes
+├── colorpalettetable.py     # Manejo de paletas CPT
+├── metadata.py              # Contenedor de metadata
+├── *.cpt                    # Paletas de color incluidas
+├── setup.py                 # Configuración pip
+├── install.sh / uninstall.sh
+└── README.md
 ```
 
 ## Licencia
@@ -222,4 +142,4 @@ GNU General Public License v3.0
 
 ## Autor
 
-Alejandro Aguilar Sierra
+Alejandro Aguilar Sierra - LANOT
