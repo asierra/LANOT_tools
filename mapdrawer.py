@@ -20,6 +20,8 @@ import fiona
 import math
 import numpy as np
 
+from metadata import Metadata
+
 # Intentamos importar rasterio para lectura de metadatos GeoTIFF
 try:
     import rasterio
@@ -776,33 +778,14 @@ def main():
         sys.exit(1)
 
     # Intentar extraer metadatos si es GeoTIFF y rasterio está disponible
-    auto_crs = None
-    auto_bounds = None
-    auto_timestamp = None
-    auto_satellite = None
+    metadata = Metadata()
     
     if HAS_RASTERIO:
         debug_msg(f"Intentando leer metadatos con rasterio de {args.input_image}")
         try:
             with rasterio.open(args.input_image) as src:
                 debug_msg(f"Rasterio info - CRS: {src.crs}, Bounds: {src.bounds}, Tags: {list(src.tags().keys())}")
-                if src.crs:
-                    auto_crs = src.crs.to_string()
-                # rasterio bounds: left, bottom, right, top -> MapDrawer: ulx, uly, lrx, lry
-                b = src.bounds
-                auto_bounds = (b.left, b.top, b.right, b.bottom)
-                
-                # Extraer tags para timestamp y satélite
-                tags = src.tags()
-                for key in ['TIFFTAG_DATETIME', 'DATETIME', 'date_created', 'time_coverage_start']:
-                    if key in tags:
-                        auto_timestamp = tags[key]
-                        break
-                
-                for key in ['platform', 'satellite', 'spacecraft', 'mission', 'TIFFTAG_IMAGEDESCRIPTION']:
-                    if key in tags:
-                        auto_satellite = tags[key]
-                        break
+                metadata = Metadata.from_rasterio(src)
         except Exception as e:
             debug_msg(f"Excepción leyendo rasterio: {e}")
             pass
@@ -810,25 +793,20 @@ def main():
     # Cargar metadatos externos si se proporcionan (tienen prioridad o llenan vacíos)
     if args.metadata and os.path.exists(args.metadata):
         try:
-            with open(args.metadata, 'r') as f:
-                meta = json.load(f)
-                debug_msg(f"Cargando metadatos externos: {meta}")
-                
-                if 'crs' in meta:
-                    auto_crs = meta['crs']
-                
-                if 'bounds' in meta:
-                    # Asumimos formato estándar [minx, miny, maxx, maxy] (left, bottom, right, top)
-                    b = meta['bounds']
-                    if len(b) == 4:
-                        # Convertir a formato MapDrawer (ulx, uly, lrx, lry) -> (minx, maxy, maxx, miny)
-                        auto_bounds = (b[0], b[3], b[2], b[1])
-                
-                if 'timestamp' in meta:
-                    auto_timestamp = meta['timestamp']
-                    
-                if 'satellite' in meta:
-                    auto_satellite = meta['satellite']
+            external_meta = Metadata.from_json_file(args.metadata)
+            debug_msg(f"Cargando metadatos externos: {external_meta.to_dict()}")
+            
+            # Sobrescribir o llenar campos del metadata
+            for key in ['crs', 'timestamp', 'satellite']:
+                if key in external_meta:
+                    metadata[key] = external_meta[key]
+            
+            # Bounds necesitan conversión de formato JSON [minx, miny, maxx, maxy] a rasterio (left, bottom, right, top)
+            if 'bounds' in external_meta:
+                b = external_meta['bounds']
+                if len(b) == 4:
+                    # JSON: [minx, miny, maxx, maxy] -> rasterio: (left, bottom, right, top)
+                    metadata['bounds'] = (b[0], b[1], b[2], b[3])
         except Exception as e:
             print(f"Error leyendo metadatos externos: {e}", file=sys.stderr)
         
@@ -859,8 +837,8 @@ def main():
     font_size = calculate_size(args.font_size, img_width, default_font)
         
     # 2. Inicializar MapDrawer
-    target_crs = args.crs if args.crs else auto_crs
-    if target_crs and target_crs == auto_crs:
+    target_crs = args.crs if args.crs else metadata.get('crs')
+    if target_crs and target_crs == metadata.get('crs'):
         print(f"Info: Usando CRS detectado: {target_crs}")
     debug_msg(f"Inicializando MapDrawer con CRS: {target_crs}")
     mapper = MapDrawer(target_crs=target_crs)
@@ -876,16 +854,19 @@ def main():
         if mapper.load_bounds_from_csv(args.recorte):
             debug_msg(f"Usando recorte: {args.recorte}")
             bounds_set = True
-    elif auto_bounds:
-        if mapper.use_proj and target_crs == auto_crs:
-            # auto_bounds es (left, top, right, bottom) -> (min_x, max_y, max_x, min_y)
-            mapper.set_projected_bounds(min_x=auto_bounds[0], min_y=auto_bounds[3], 
-                                        max_x=auto_bounds[2], max_y=auto_bounds[1])
-            print(f"Info: Usando límites proyectados detectados.")
-        else:
-            mapper.set_bounds(*auto_bounds)
-            print(f"Info: Usando límites detectados: {auto_bounds}")
-        bounds_set = True
+    elif 'bounds' in metadata:
+        bounds = metadata.get_mapdrawer_bounds()
+        if bounds:
+            if mapper.use_proj and target_crs == metadata.get('crs'):
+                # Usar bounds proyectados desde metadata
+                b = metadata['bounds']
+                mapper.set_projected_bounds(min_x=b[0], min_y=b[1], 
+                                            max_x=b[2], max_y=b[3])
+                print(f"Info: Usando límites proyectados detectados.")
+            else:
+                mapper.set_bounds(*bounds)
+                print(f"Info: Usando límites detectados: {bounds}")
+            bounds_set = True
     else:
         debug_msg("No se establecieron límites (bounds).")
     
@@ -928,8 +909,8 @@ def main():
         pos = args.timestamp_pos if args.timestamp_pos is not None else 2
     elif args.timestamp_pos is not None:
         # Solo se dio --timestamp-pos
-        if auto_timestamp:
-            ts = format_ts(auto_timestamp, auto_satellite)
+        if 'timestamp' in metadata:
+            ts = format_ts(metadata['timestamp'], metadata.get('satellite'))
         else:
             # Usar fecha actual si no hay metadatos
             ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
@@ -937,8 +918,8 @@ def main():
     else:
         # No se especificó posición: solo informar si se detecta fecha, pero NO dibujar por defecto
         # para mantener consistencia con geotiff2view.
-        if auto_timestamp:
-            print(f"Info: Fecha detectada en metadatos: {format_ts(auto_timestamp, auto_satellite)}")
+        if 'timestamp' in metadata:
+            print(f"Info: Fecha detectada en metadatos: {format_ts(metadata['timestamp'], metadata.get('satellite'))}")
         else:
             # Intentar extraer del nombre (YYYYjjjHHMM)
             import re

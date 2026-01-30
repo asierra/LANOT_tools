@@ -22,6 +22,7 @@ import re
 from datetime import datetime
 
 from colorpalettetable import ColorPaletteTable
+from metadata import Metadata
 try:
     from mapdrawer import MapDrawer
 except ImportError as e:
@@ -92,31 +93,15 @@ def load_geotiff(filepath, n_idx=None, f_idx=None, offset=0, scale_factor=1.0, r
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Archivo no encontrado: {filepath}")
 
-    metadata = {}
+    metadata = Metadata()
     if HAS_RASTERIO:
         debug_msg(f"Abriendo con rasterio: {filepath}")
         with rasterio.open(filepath) as src:
             debug_msg(f"Metadatos: {src.meta}")
             
-            # Extraer metadatos para MapDrawer
-            if src.crs:
-                metadata['crs'] = src.crs.to_string()
-            metadata['bounds'] = src.bounds
-            
-            # Intentar extraer fecha de tags comunes
-            tags = src.tags()
-            debug_msg(f"Tags disponibles: {list(tags.keys())}")
-            
-            for key in ['TIFFTAG_DATETIME', 'DATETIME', 'date_created', 'time_coverage_start']:
-                if key in tags:
-                    metadata['timestamp'] = tags[key]
-                    break
-            
-            # Intentar extraer satélite/plataforma
-            for key in ['platform', 'satellite', 'spacecraft', 'mission', 'TIFFTAG_IMAGEDESCRIPTION']:
-                if key in tags:
-                    metadata['satellite'] = tags[key]
-                    break
+            # Extraer metadatos usando Metadata.from_rasterio()
+            metadata = Metadata.from_rasterio(src)
+            debug_msg(f"Tags disponibles: {list(src.tags().keys())}")
 
             # Leer datos (bands, h, w)
             data = src.read()
@@ -441,22 +426,12 @@ def main():
 
     # Guardar metadatos externos si se solicita
     if args.save_metadata:
-        meta_export = {}
-        if 'crs' in metadata:
-            meta_export['crs'] = metadata['crs']
-        if 'bounds' in metadata:
-            # rasterio bounds: left, bottom, right, top -> [minx, miny, maxx, maxy]
-            meta_export['bounds'] = list(metadata['bounds'])
-        if 'timestamp' in metadata:
-            meta_export['timestamp'] = metadata['timestamp']
-        if 'satellite' in metadata:
-            meta_export['satellite'] = metadata['satellite']
+        # Agregar units si existe en CPT
         if cpt_obj and getattr(cpt_obj, 'units', None):
-            meta_export['units'] = cpt_obj.units
+            metadata['units'] = cpt_obj.units
             
         try:
-            with open(args.save_metadata, 'w') as f:
-                json.dump(meta_export, f, indent=2)
+            metadata.save_json(args.save_metadata)
             if VERBOSE:
                 print(f"Metadatos guardados en {args.save_metadata}")
         except Exception as e:
@@ -542,10 +517,9 @@ def main():
                 mapper.set_image(img)
                 
                 # Configurar Bounds si están disponibles
-                if 'bounds' in metadata:
-                    # rasterio bounds: left, bottom, right, top
-                    b = metadata['bounds']
-                    mapper.set_bounds(ulx=b[0], uly=b[3], lrx=b[2], lry=b[1])
+                bounds = metadata.get_mapdrawer_bounds()
+                if bounds:
+                    mapper.set_bounds(*bounds)
 
                 # Dibujar Capas
                 if args.layer:

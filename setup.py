@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     description="Herramientas y utilidades comunes para LANOT (Laboratorio Nacional de Observación de la Tierra)",
     author="Abraham Sierra",
-    py_modules=["mapdrawer", "geotiff2view", "colorpalettetable"],
+    py_modules=["mapdrawer", "geotiff2view", "colorpalettetable", "metadata"],
     install_requires=[
         "Pillow",
         "fiona",
