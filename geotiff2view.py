@@ -577,7 +577,6 @@ def main():
                                 except ValueError:
                                     pass
 
-                # Fallback: Si no hay satélite en metadatos, buscar en nombre de archivo
                 if 'satellite' not in metadata:
                     fname = os.path.basename(args.input).lower()
                     if fname.startswith('npp'):
@@ -593,10 +592,51 @@ def main():
                     elif 'metopa' in fname:
                         metadata['satellite'] = 'Metop-A'
 
+                # Fallback: Si no hay band en metadatos, buscar en nombre de archivo
+                if 'band' not in metadata:
+                    # Regex para Mxx, Ixx, Cxx, DNB o bandXX
+                    match = re.search(r"[_]((?:M|I|C)\d{1,2}|DNB|band\d+)(?:[_.]|$)", os.path.basename(args.input))
+                    if match:
+                        metadata['band'] = match.group(1)
+                    else:
+                        metadata['band'] = ""
+
+                # Si no hay band, buscar product
+                if not metadata.get('band') and 'product' not in metadata:
+                     fname = os.path.basename(args.input)
+                     # Busqueda simple por palabras clave comunes en productos
+                     lower_fname = fname.lower()
+                     if 'sst' in lower_fname:
+                         metadata['product'] = 'SST'
+                     elif 'cloud_phase' in lower_fname:
+                         metadata['product'] = 'Cloud Phase'
+                     elif 'cloud_type' in lower_fname:
+                         metadata['product'] = 'Cloud Type'
+                     elif 'cld_temp_acha' in lower_fname:
+                         metadata['product'] = 'Cloud Top Temp'
+                     elif 'cld_height_acha' in lower_fname:
+                         metadata['product'] = 'Cloud Top Height'
+                     elif 'cld_emiss_acha' in lower_fname:
+                         metadata['product'] = 'Cloud Emissivity'
+                     elif 'dnb' in lower_fname:
+                         metadata['product'] = 'DNB'
+                     elif 'fire' in lower_fname:
+                         metadata['product'] = 'Fire'
+
                 if ts_text and ts_pos is not None:
                     # Si se detectó satélite y estamos en modo automático, agregarlo al texto
-                    if not args.timestamp and 'satellite' in metadata:
-                        ts_text = f"{metadata['satellite']} {ts_text}"
+                    if not args.timestamp:
+                        parts = []
+                        if 'satellite' in metadata:
+                            parts.append(metadata['satellite'])
+                        
+                        if 'band' in metadata and metadata['band']:
+                            parts.append(metadata['band'])
+                        elif 'product' in metadata and metadata['product']:
+                             parts.append(metadata['product'])
+                             
+                        parts.append(ts_text)
+                        ts_text = " ".join(parts)
                         
                     default_fsize = max(15, int(img.width * 0.015))
                     fsize = calculate_size(args.font_size, img.width, default_fsize)

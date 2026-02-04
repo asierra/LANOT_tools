@@ -141,6 +141,19 @@ class Metadata:
             if key in tags:
                 meta['satellite'] = tags[key]
                 break
+
+        # Extract band/channel info
+        for key in ['band', 'band_id', 'channel', 'sensor_band']:
+            if key in tags:
+                meta['band'] = tags[key]
+                break
+        
+        # Extract product info if not a band
+        if 'band' not in meta:
+            for key in ['product', 'product_name', 'algorithm']:
+                if key in tags:
+                    meta['product'] = tags[key]
+                    break
         
         return meta
     

@@ -288,15 +288,25 @@ class ColorPaletteTable:
             draw.text((item['x'], y), item['text'], fill=color, font=font)
 
     def _draw_label_row(self, draw, x0, y, width, min_val, max_val, offset, labels, color, font_size):
-        try:
-            font = ImageFont.truetype("DejaVuSans.ttf", font_size)
-        except IOError:
-            font = ImageFont.load_default()
 
         max_idx = int(max_val - offset)
         num_slots = max_idx + 1
         if num_slots <= 0: return
         step = width / num_slots
+
+        # Ajuste dinámico de fuente para evitar superposición
+        visible_labels = [str(l) for v, l in labels.items() if 0 <= int(v - offset) <= max_idx]
+        if visible_labels:
+            max_len = max(len(l) for l in visible_labels)
+            if max_len > 0:
+                # Estimar tamaño: font_size <= step / (chars * 0.5)
+                calc_size = int(step / (max_len * 0.5))
+                font_size = max(8, min(font_size, calc_size))
+
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+        except IOError:
+            font = ImageFont.load_default()
         
         def get_w(text):
             try:
@@ -312,6 +322,15 @@ class ColorPaletteTable:
             if 0 <= idx <= max_idx:
                 center_x = x0 + idx * step + step / 2
                 text = str(label)
+                
+                # Truncar si excede el ancho disponible
+                max_w = step - 2
+                if get_w(text) > max_w:
+                    while len(text) > 0 and get_w(text + ".") > max_w:
+                        text = text[:-1]
+                    if text:
+                        text += "."
+                
                 items.append({'text': text, 'x': center_x - get_w(text) / 2})
 
         if self.units:

@@ -1,0 +1,22 @@
+# cloud_type.cpt
+# CPT discreto para Cloud Type (13 clases)
+# COLOR_MODEL = RGB
+# Value R G B      #Label
+0   192 192 192    ; Clear
+1   128 128 128    ; Prob. clear
+2     0 128   0    ; Fog
+3     0   0 255    ; Water
+4     0 255 255    ; Super cool w 
+5   252 192 203    ; Mixed
+6   255   0   0    ; Opaque Ice 
+7   255 255   0    ; Cirrus 
+8   255 165   0    ; Overlapping
+9   165  42  42    ; Overshooting
+10  255 255 255    ; Unknown
+11  255   0 255    ; Dust
+12  128   0 128    ; Smoke
+# Optical metadata: Background, Foreground, No Data
+B   0   0   0
+F 255 255 255
+N 255   0   0
+
