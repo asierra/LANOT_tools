@@ -247,58 +247,53 @@ class MapDrawer:
                 # Fallback a todo el mundo
                 self.bounds = {'ulx': -180, 'uly': 90, 'lrx': 180, 'lry': -90}
 
-    def load_bounds_from_csv(self, recorte_name, csv_path=None):
-        # Verificar primero regiones predefinidas (hardcoded)
+    def get_region_bounds(self, recorte_name, csv_path=None):
+        """Obtiene los límites (ulx, uly, lrx, lry) de una región por nombre."""
         name_lower = recorte_name.lower()
+        
         if name_lower in PREDEFINED_REGIONS:
-            # Caso especial: Full Disk con proyección GOES
-            if name_lower in ('fd', 'fulldisk') and self.use_proj:
-                # Usar límites en metros directos para evitar problemas de proyección en las esquinas
-                self.proj_bounds = GOES_FD_EXTENT_METERS.copy()
-                # También establecemos bounds lat/lon referenciales (aunque no se usen para el mapeo)
-                vals = PREDEFINED_REGIONS[name_lower]
-                self.bounds['ulx'] = vals[0]
-                self.bounds['uly'] = vals[1]
-                self.bounds['lrx'] = vals[2]
-                self.bounds['lry'] = vals[3]
-                print(f"Info: Usando límites Full Disk GOES en metros: {self.proj_bounds}")
-                return True
-            
-            # Caso especial: CONUS con proyección GOES (Asumiendo GOES-16/East)
-            if name_lower == 'conus' and self.use_proj:
-                self.proj_bounds = GOES_CONUS_EXTENT_METERS.copy()
-                vals = PREDEFINED_REGIONS[name_lower]
-                self.bounds['ulx'] = vals[0]
-                self.bounds['uly'] = vals[1]
-                self.bounds['lrx'] = vals[2]
-                self.bounds['lry'] = vals[3]
-                print(f"Info: Usando límites CONUS GOES en metros: {self.proj_bounds}")
-                return True
-            
-            vals = PREDEFINED_REGIONS[name_lower]
-            self.set_bounds(*vals)
-            print(f"Info: Usando región predefinida '{recorte_name}': {vals}")
-            return True
+            return PREDEFINED_REGIONS[name_lower]
 
         if csv_path is None:
             csv_path = os.path.join(self.lanot_dir, "docs/recortes_coordenadas.csv")
         
         try:
-            # Optimización: Podríamos cargar todo el CSV a memoria si se hacen muchas consultas,
-            # pero para uso normal línea por línea está bien.
-            with open(csv_path, newline='') as csvfile:
-                reader = csv.reader(csvfile)
-                for row in reader:
-                    if row[0] == recorte_name:
-                        # Convertir a float y desempaquetar
-                        vals = [float(i) for i in row[2:]]
-                        self.set_bounds(*vals)
-                        return True
-            print(f"Advertencia: Recorte '{recorte_name}' no encontrado en CSV.")
+            if os.path.exists(csv_path):
+                with open(csv_path, newline='') as csvfile:
+                    reader = csv.reader(csvfile)
+                    for row in reader:
+                        if row[0] == recorte_name:
+                            return [float(i) for i in row[2:]]
+        except Exception:
+            pass
+        return None
+
+    def load_bounds_from_csv(self, recorte_name, csv_path=None):
+        vals = self.get_region_bounds(recorte_name, csv_path)
+        
+        if not vals:
+            print(f"Advertencia: Recorte '{recorte_name}' no encontrado.")
             return False
-        except FileNotFoundError:
-            print(f"Error: No se encontró el archivo {csv_path}")
-            return False
+
+        name_lower = recorte_name.lower()
+        
+        # Verificar casos especiales de proyección (GOES FD/CONUS)
+        if self.use_proj:
+            if name_lower in ('fd', 'fulldisk'):
+                self.proj_bounds = GOES_FD_EXTENT_METERS.copy()
+                self.bounds['ulx'], self.bounds['uly'], self.bounds['lrx'], self.bounds['lry'] = vals
+                print(f"Info: Usando límites Full Disk GOES en metros: {self.proj_bounds}")
+                return True
+            
+            if name_lower == 'conus':
+                self.proj_bounds = GOES_CONUS_EXTENT_METERS.copy()
+                self.bounds['ulx'], self.bounds['uly'], self.bounds['lrx'], self.bounds['lry'] = vals
+                print(f"Info: Usando límites CONUS GOES en metros: {self.proj_bounds}")
+                return True
+
+        self.set_bounds(*vals)
+        print(f"Info: Usando región '{recorte_name}': {vals}")
+        return True
 
     def _geo2pixel(self, lon, lat):
         """Convierte lon/lat a u/v (píxeles) usando la estrategia activa.
@@ -335,6 +330,42 @@ class MapDrawer:
             u = int(w * (lon - b['ulx']) / width_span)
             v = int(h * (b['uly'] - lat) / height_span)
             return u, v
+
+    def crop(self, ulx, uly, lrx, lry):
+        """Recorta la imagen a los límites geográficos especificados."""
+        if self.image is None:
+            return
+
+        debug_msg(f"Calculando recorte para: {ulx}, {uly}, {lrx}, {lry}")
+        
+        # Convertir coordenadas geográficas a píxeles
+        res1 = self._geo2pixel(ulx, uly)
+        res2 = self._geo2pixel(lrx, lry)
+        
+        if res1 is None or res2 is None:
+            print("Error: Coordenadas de recorte fuera de proyección o inválidas.", file=sys.stderr)
+            return
+            
+        u1, v1 = res1
+        u2, v2 = res2
+
+        # Asegurar orden correcto (min, max)
+        min_u, max_u = sorted([u1, u2])
+        min_v, max_v = sorted([v1, v2])
+        
+        # Validar límites de imagen y recortar
+        min_u = max(0, min_u)
+        min_v = max(0, min_v)
+        max_u = min(self.image.width, max_u)
+        max_v = min(self.image.height, max_v)
+        
+        if max_u > min_u and max_v > min_v:
+            debug_msg(f"Recortando imagen a píxeles: {min_u}, {min_v}, {max_u}, {max_v}")
+            self.image = self.image.crop((min_u, min_v, max_u, max_v))
+            # Actualizar bounds a los nuevos límites
+            self.set_bounds(ulx, uly, lrx, lry)
+        else:
+            print("Error: Recorte resultante vacío o fuera de la imagen.", file=sys.stderr)
 
     def draw_shapefile(self, vector_rel_path, color='yellow', width=0.5, layer=None):
         """Dibuja un archivo vectorial (shapefile o geopackage) sobre la imagen.
@@ -751,10 +782,8 @@ def main():
     parser.add_argument("--output", "-o", help="Ruta de la imagen de salida. Por defecto sobreescribe la entrada.")
     
     # Límites
-    group_bounds = parser.add_mutually_exclusive_group()
-    group_bounds.add_argument("--bounds", nargs=4, type=float, metavar=('ULX', 'ULY', 'LRX', 'LRY'), 
-                              help="Límites geográficos: ulx uly lrx lry")
-    group_bounds.add_argument("--recorte", help="Nombre del recorte definido en recortes_coordenadas.csv")
+    parser.add_argument("--bounds", help="Límites geográficos: 'ULX,ULY,LRX,LRY' (separados por coma) o nombre de región")
+    parser.add_argument("--clip", help="Recortar imagen a límites: ULX,ULY,LRX,LRY (separados por coma) o nombre de región")
     
     # Capas
     parser.add_argument("--layer", action="append", 
@@ -862,13 +891,21 @@ def main():
     # 3. Establecer límites
     bounds_set = False
     if args.bounds:
-        mapper.set_bounds(*args.bounds)
-        debug_msg(f"Usando bounds manuales: {args.bounds}")
-        bounds_set = True
-    elif args.recorte:
-        if mapper.load_bounds_from_csv(args.recorte):
-            debug_msg(f"Usando recorte: {args.recorte}")
-            bounds_set = True
+        if ',' in args.bounds:
+            try:
+                b_vals = [float(x) for x in args.bounds.split(',')]
+                if len(b_vals) == 4:
+                    mapper.set_bounds(*b_vals)
+                    debug_msg(f"Usando bounds manuales: {b_vals}")
+                    bounds_set = True
+                else:
+                    print("Error: --bounds requiere 4 valores: ULX,ULY,LRX,LRY", file=sys.stderr)
+            except ValueError:
+                print("Error: Formato de --bounds inválido. Use números separados por coma.", file=sys.stderr)
+        else:
+            if mapper.load_bounds_from_csv(args.bounds):
+                debug_msg(f"Usando bounds por nombre: {args.bounds}")
+                bounds_set = True
     elif 'bounds' in metadata:
         bounds = metadata.get_mapdrawer_bounds()
         if bounds:
@@ -885,7 +922,27 @@ def main():
     else:
         debug_msg("No se establecieron límites (bounds).")
     
-    # 4. Dibujar capas
+    # 4. Recorte (Clip)
+    if args.clip:
+        if ',' in args.clip:
+            try:
+                c_vals = [float(x) for x in args.clip.split(',')]
+                if len(c_vals) == 4:
+                    mapper.crop(*c_vals)
+                else:
+                    print("Error: --clip requiere 4 valores: ULX,ULY,LRX,LRY", file=sys.stderr)
+            except ValueError:
+                print("Error: Formato de --clip inválido. Use números separados por coma.", file=sys.stderr)
+        else:
+            # Intentar buscar por nombre de región
+            bounds = mapper.get_region_bounds(args.clip)
+            if bounds:
+                debug_msg(f"Recortando a región '{args.clip}': {bounds}")
+                mapper.crop(*bounds)
+            else:
+                print(f"Error: Región de recorte '{args.clip}' no encontrada.", file=sys.stderr)
+
+    # 5. Dibujar capas
     if args.layer and bounds_set:
         for layer_def in args.layer:
             parts = layer_def.split(':')
@@ -894,13 +951,13 @@ def main():
             width = float(parts[2]) if len(parts) > 2 else 0.5
             mapper.draw_layer(name, color=color, width=width)
     elif args.layer and not bounds_set:
-        print("Advertencia: Se pidieron capas pero no se definieron límites (--bounds o --recorte).")
+        print("Advertencia: Se pidieron capas pero no se definieron límites (--bounds).")
 
-    # 5. Logo
+    # 6. Logo
     if args.logo_pos is not None:
         mapper.draw_logo(logosize=logo_size, position=args.logo_pos)
         
-    # 6. Fecha
+    # 7. Fecha
     # Solo mostrar fecha si se especificó --timestamp, --timestamp-pos, 
     # o se detecta patrón de fecha en el nombre del archivo
     ts = None
@@ -952,7 +1009,7 @@ def main():
     if ts is not None and pos is not None:
         mapper.draw_fecha(ts, position=pos, fontsize=font_size, color=args.font_color)
     
-    # 7. Leyenda
+    # 8. Leyenda
     if args.cpt and args.legend_pos is not None:
         items = mapper.parse_cpt(args.cpt)
         if items:
@@ -963,7 +1020,11 @@ def main():
                 v_offset = int(font_size * 2.5)
             mapper.draw_legend(items, position=args.legend_pos, fontsize=font_size, vertical_offset=v_offset)
             
-    # 8. Guardar
+    # 9. Guardar
+    # Recuperar la imagen del mapper por si hubo recorte (crop genera nueva instancia)
+    if mapper.image:
+        img = mapper.image
+
     default_ext = ".jpg" if args.jpeg else ".png"
     base_name = os.path.splitext(os.path.basename(args.input_image))[0]
 

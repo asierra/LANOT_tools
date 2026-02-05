@@ -310,6 +310,7 @@ def main():
     parser.add_argument("--save-metadata", help="Guardar metadatos (CRS, bounds, timestamp) en un archivo JSON.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Mostrar mensajes de depuración")
     parser.add_argument("--autoscale", action="store_true", help="Forzar escalado de datos normalizados (0-1) al rango de la paleta.")
+    parser.add_argument("--clip", help="Recortar imagen a límites: ULX,ULY,LRX,LRY (separados por coma) o nombre de región")
     
     args = parser.parse_args()
     VERBOSE = args.verbose
@@ -502,7 +503,7 @@ def main():
             print("Advertencia: La imagen no es de un solo canal (L), se ignora la paleta.", file=sys.stderr)
 
     # Integración con MapDrawer (Capas y Logo)
-    if (args.logo_pos is not None or args.layer or args.timestamp_pos is not None or args.timestamp or args.legend_pos is not None):
+    if (args.logo_pos is not None or args.layer or args.timestamp_pos is not None or args.timestamp or args.legend_pos is not None or args.clip):
         # MapDrawer requiere un modo de color directo (RGB/RGBA) para dibujar elementos con colores arbitrarios (capas, logos, texto).
         if img.mode == 'L' or img.mode == 'P':
             debug_msg("Convirtiendo imagen a RGB/RGBA para MapDrawer")
@@ -520,6 +521,26 @@ def main():
                 bounds = metadata.get_mapdrawer_bounds()
                 if bounds:
                     mapper.set_bounds(*bounds)
+
+                # Recorte (Clip)
+                if args.clip:
+                    if ',' in args.clip:
+                        try:
+                            c_vals = [float(x) for x in args.clip.split(',')]
+                            if len(c_vals) == 4:
+                                mapper.crop(*c_vals)
+                            else:
+                                print("Error: --clip requiere 4 valores: ULX,ULY,LRX,LRY", file=sys.stderr)
+                        except ValueError:
+                            print("Error: Formato de --clip inválido. Use números separados por coma.", file=sys.stderr)
+                    else:
+                        # Intentar buscar por nombre de región
+                        bounds = mapper.get_region_bounds(args.clip)
+                        if bounds:
+                            debug_msg(f"Recortando a región '{args.clip}': {bounds}")
+                            mapper.crop(*bounds)
+                        else:
+                            print(f"Error: Región de recorte '{args.clip}' no encontrada.", file=sys.stderr)
 
                 # Dibujar Capas
                 if args.layer:
@@ -664,6 +685,10 @@ def main():
                         if args.timestamp_pos == args.legend_pos:
                              v_offset = int(lsize * 2.5)
                         mapper.draw_legend(legend_items, position=args.legend_pos, fontsize=lsize, vertical_offset=v_offset)
+                
+                # Recuperar la imagen del mapper por si hubo recorte
+                if mapper.image:
+                    img = mapper.image
                     
             except Exception as e:
                 print(f"Error en MapDrawer: {e}", file=sys.stderr)

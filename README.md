@@ -50,7 +50,7 @@ geotiff2view datos.tif --cpt sst.cpt --alpha \
 # Composición RGB con capas vectoriales
 geotiff2view banda_roja.tif banda_verde.tif banda_azul.tif \
   --layer COASTLINE:yellow:1.0 --layer COUNTRIES:gray:0.5 \
-  --recorte conus --crs goes16 -o rgb_composite.png
+  --bounds conus --crs goes16 -o rgb_composite.png
 ```
 
 ### Post-procesamiento de imágenes existentes
