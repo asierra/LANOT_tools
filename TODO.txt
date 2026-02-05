@@ -30,7 +30,14 @@ local.
 
 Tue Jan 27 10:01:45 AM CST 2026
 
-Refactorizar para separar CPT y Metadata de geotiff2view y agregar RGB
-arbitrario.
+Refactorizar para separar CPT y Metadata de geotiff2view. Hecho.
+Agregar RGB arbitrario.
+
+
+Wed Feb  4 11:13:37 PM CST 2026
+
+Permitir varios recortes cargando solamente una imagen. Probablemente
+lo hagamos en un script python usando mapdrawer como módulo.
+
 
 
