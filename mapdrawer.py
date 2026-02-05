@@ -22,6 +22,9 @@ import numpy as np
 
 from metadata import Metadata
 
+# Desactivar límite de píxeles para imágenes satelitales grandes
+Image.MAX_IMAGE_PIXELS = None
+
 # Intentamos importar rasterio para lectura de metadatos GeoTIFF
 try:
     import rasterio
@@ -222,11 +225,23 @@ class MapDrawer:
                 valid_lats = [l for l in lats if math.isfinite(l)]
                 
                 if valid_lons and valid_lats:
-                    self.bounds['ulx'] = min(valid_lons)
-                    self.bounds['lrx'] = max(valid_lons)
-                    self.bounds['lry'] = min(valid_lats)
-                    self.bounds['uly'] = max(valid_lats)
+                    ulx, lrx = min(valid_lons), max(valid_lons)
+                    lry, uly = min(valid_lats), max(valid_lats)
+                    
+                    # Si los límites colapsan (ej. solo el centro es válido en Full Disk),
+                    # usar fallback global.
+                    if (lrx - ulx) < 1e-5 and (uly - lry) < 1e-5:
+                        debug_msg("Límites estimados colapsados (posible Full Disk). Usando fallback global.")
+                        self.bounds = {'ulx': -180, 'uly': 90, 'lrx': 180, 'lry': -90}
+                    else:
+                        self.bounds['ulx'] = ulx
+                        self.bounds['lrx'] = lrx
+                        self.bounds['lry'] = lry
+                        self.bounds['uly'] = uly
                     debug_msg(f"Límites Lat/Lon estimados: {self.bounds}")
+                else:
+                    # Fallback si no hay puntos válidos
+                    self.bounds = {'ulx': -180, 'uly': 90, 'lrx': 180, 'lry': -90}
             except Exception as e:
                 debug_msg(f"Advertencia: No se pudieron calcular límites Lat/Lon inversos: {e}")
                 # Fallback a todo el mundo
