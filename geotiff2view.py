@@ -31,8 +31,8 @@ except ImportError as e:
         import MapDrawer as md
         MapDrawer = md.MapDrawer
     except ImportError:
-        # Si falla, mostramos el error original (probablemente falten dependencias como aggdraw)
-        print(f"Advertencia: No se pudo importar MapDrawer. Detalle: {e}", file=sys.stderr)
+        # Si falla, mostramos el error original
+        print(f"Advertencia: No se pudo importar MapDrawer. Detalle: {e}\n(Se omitirán las decoraciones de mapa)", file=sys.stderr)
 
 # Intentamos importar rasterio para lectura avanzada de GeoTIFF
 try:

@@ -565,7 +565,7 @@ class MapDrawer:
                 # Si es un string, usarlo directamente
                 fecha_str = str(timestamp)
             
-            # Usar aggdraw para dibujar texto
+            # Usar ImageDraw para dibujar texto
             draw = ImageDraw.Draw(self.image)
             
             # Crear fuente (aggdraw usa fuentes truetype)
@@ -593,7 +593,7 @@ class MapDrawer:
             
             # Calcular el tamaño real del texto renderizado
             try:
-                # aggdraw.Draw.textsize() devuelve (width, height) del texto
+                # draw.textbbox devuelve (left, top, right, bottom)
                 left, top, right, bottom = draw.textbbox((0, 0), fecha_str, font=font)
                 text_width = right - left
                 text_height = bottom - top
@@ -782,7 +782,7 @@ def main():
     parser.add_argument("--output", "-o", help="Ruta de la imagen de salida. Por defecto sobreescribe la entrada.")
     
     # Límites
-    parser.add_argument("--bounds", help="Límites geográficos: 'ULX,ULY,LRX,LRY' (separados por coma) o nombre de región")
+    parser.add_argument("--bounds", help="Límites geográficos: 'ULX,ULY,LRX,LRY' (separados por coma). Use formato --bounds=... si inicia con negativo.")
     parser.add_argument("--clip", help="Recortar imagen a límites: ULX,ULY,LRX,LRY (separados por coma) o nombre de región")
     
     # Capas
