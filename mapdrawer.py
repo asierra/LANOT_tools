@@ -772,6 +772,27 @@ def calculate_size(value, ref_size, default=0):
     except ValueError:
         return default
 
+def get_timestamp_from_filename(filename):
+    """
+    Intenta extraer una marca de tiempo del nombre del archivo.
+    Soporta formato Juliano (YYYYjjjHHMM).
+    """
+    import re
+    from datetime import datetime
+    
+    basename = os.path.basename(filename)
+    
+    # Patrón: YYYYjjjHHMM (Julian)
+    match = re.search(r"(\d{4})(\d{3})(\d{4})", basename)
+    if match:
+        yyyy, jjj, hhmm = match.groups()
+        try:
+            dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
+            return dt.strftime("%Y/%m/%d %H:%MZ")
+        except ValueError:
+            pass
+    return None
+
 # --- Bloque Principal para pruebas ---
 def main():
     from datetime import datetime, timezone
@@ -994,17 +1015,9 @@ def main():
             print(f"Info: Fecha detectada en metadatos: {format_ts(metadata['timestamp'], metadata.get('satellite'))}")
         else:
             # Intentar extraer del nombre (YYYYjjjHHMM)
-            import re
-            match = re.search(r"(\d{4})(\d{3})(\d{4})", os.path.basename(args.input_image))
-            if match:
-                yyyy, jjj, hhmm = match.groups()
-                try:
-                    # Convertir a datetime
-                    dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
-                    detected_ts = dt.strftime("%Y/%m/%d %H:%MZ")
-                    print(f"Info: Fecha detectada en nombre: {detected_ts}")
-                except ValueError:
-                    pass  # Patrón inválido, no mostrar fecha
+            detected_ts = get_timestamp_from_filename(args.input_image)
+            if detected_ts:
+                print(f"Info: Fecha detectada en nombre: {detected_ts}")
     
     if ts is not None and pos is not None:
         mapper.draw_fecha(ts, position=pos, fontsize=font_size, color=args.font_color)

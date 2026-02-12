@@ -40,4 +40,7 @@ Permitir varios recortes cargando solamente una imagen. Probablemente
 lo hagamos en un script python usando mapdrawer como módulo.
 
 
+Thu Feb 12 12:43:19 AM CST 2026
+
+Falta poner grid y ver si vale la pena usar pycoast.
 
