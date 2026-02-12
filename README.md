@@ -51,6 +51,11 @@ geotiff2view datos.tif --cpt sst.cpt --alpha \
 geotiff2view banda_roja.tif banda_verde.tif banda_azul.tif \
   --layer COASTLINE:yellow:1.0 --layer COUNTRIES:gray:0.5 \
   --bounds conus --crs goes16 -o rgb_composite.png
+
+# Agregar grilla lat/lon con etiquetas (intervalos de 5°, 10°, 15°...)
+mapdrawer imagen.png --bounds conus \
+  --layer grid5:white:1.0:labels \
+  --layer COASTLINE:yellow:1.0 -o con_grilla.png
 ```
 
 ### Post-procesamiento de imágenes existentes
@@ -85,6 +90,7 @@ mapper.set_bounds(ulx, uly, lrx, lry)
 
 # Dibujar capas y decoraciones
 mapper.draw_layer('COASTLINE', 'white', 1.0)
+mapper.draw_grid(interval=10, color='gray', width=0.5, labels=True)
 mapper.draw_logo(position=3)
 mapper.draw_fecha(metadata.get('timestamp'), position=0)
 
@@ -97,6 +103,7 @@ img.save("output.png")
 - **Paletas de color**: CPT continuos y discretos con soporte para valores especiales (NoData, background, foreground)
 - **Manejo de NoData**: Transparencia automática y máscaras en composiciones RGB
 - **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
+- **Grillas lat/lon**: Gratículas con intervalos configurables y etiquetas direccionales N/S/E/W
 - **Metadata flexible**: Extracción automática de GeoTIFF o JSON sidecar
 - **Regiones predefinidas**: `conus`, `fulldisk` para recortes rápidos
 
