@@ -1,0 +1,9 @@
+# viirs_confidence_cat.cpt
+# COLOR_MOEL = RGB 
+# Value R G B       # Label
+7 255 255   0       ; Low Confidence
+8 254 165   0       ; Nominal Confidence
+9 255   0   0       ; High confidence
+B   0   0   0
+F 255 255 255
+N 255   0   0

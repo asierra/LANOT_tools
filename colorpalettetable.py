@@ -218,8 +218,9 @@ class ColorPaletteTable:
             return
 
         # Dibujar barra de colores
+        min_idx = int((self.min_val - self.offset) * self.scale_factor)
         max_idx = int((self.max_val - self.offset) * self.scale_factor)
-        self._draw_colorbar(draw, x, y, width, height, max_index=max_idx)
+        self._draw_colorbar(draw, x, y, width, height, min_index=min_idx, max_index=max_idx)
         
         # Dibujar etiquetas o valores
         text_y = y + height
@@ -230,20 +231,24 @@ class ColorPaletteTable:
         else:
             self._draw_value_row(draw, x, text_y, width, self.min_val, self.max_val, 5, color, font_size)
 
-    def _draw_colorbar(self, draw, x, y, width, height, max_index=None):
+    def _draw_colorbar(self, draw, x, y, width, height, min_index=0, max_index=None):
         total_colors = 256
-        num_colors = min(max_index + 1, total_colors) if max_index is not None else total_colors
-        if num_colors <= 0: return
+
+        start_idx = min_index
+        end_idx = min(max_index, total_colors - 1) if max_index is not None else total_colors - 1
+        
+        num_colors_in_range = (end_idx - start_idx) + 1
+        if num_colors_in_range <= 0: return
 
         mode = draw.im.mode
 
         # Iterar sobre cada píxel horizontal del ancho de la barra de color
         for i in range(int(width)):
-            # Mapear la posición del píxel a un índice de color en la paleta
-            # Esto convierte la posición (0 a width-1) a un índice (0 a num_colors-1)
-            color_idx = int((i / width) * num_colors)
-            # Asegurarse de que el índice no se salga del rango
-            color_idx = min(color_idx, num_colors - 1)
+            # Mapear la posición del píxel (i) a un índice de color relativo (0 a num_colors_in_range-1)
+            relative_color_idx = int((i / width) * num_colors_in_range)
+            # Sumar el offset inicial para obtener el índice absoluto en la paleta
+            color_idx = start_idx + relative_color_idx
+            color_idx = min(color_idx, end_idx)
 
             px = x + i
 
@@ -289,13 +294,21 @@ class ColorPaletteTable:
 
     def _draw_label_row(self, draw, x0, y, width, min_val, max_val, offset, labels, color, font_size):
 
-        max_idx = int(max_val - offset)
-        num_slots = max_idx + 1
+        if not labels:
+            return
+
+        # Usar el rango real de los valores de las etiquetas para distribuir el espacio
+        label_vals = sorted(labels.keys())
+        min_label_val = int(label_vals[0])
+        max_label_val = int(label_vals[-1])
+
+        # El número de "slots" es la diferencia entre el máximo y mínimo + 1
+        num_slots = (max_label_val - min_label_val) + 1
         if num_slots <= 0: return
         step = width / num_slots
 
         # Ajuste dinámico de fuente para evitar superposición
-        visible_labels = [str(l) for v, l in labels.items() if 0 <= int(v - offset) <= max_idx]
+        visible_labels = [str(l) for v, l in labels.items() if min_label_val <= int(v) <= max_label_val]
         if visible_labels:
             max_len = max(len(l) for l in visible_labels)
             if max_len > 0:
@@ -318,9 +331,10 @@ class ColorPaletteTable:
 
         items = []
         for val, label in sorted(labels.items()):
-            idx = int(val - offset)
-            if 0 <= idx <= max_idx:
-                center_x = x0 + idx * step + step / 2
+            # Calcular posición relativa al valor mínimo de las etiquetas
+            relative_idx = int(val - min_label_val)
+            if 0 <= relative_idx < num_slots:
+                center_x = x0 + relative_idx * step + step / 2
                 text = str(label)
                 
                 # Truncar si excede el ancho disponible

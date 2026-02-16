@@ -520,6 +520,17 @@ def main():
                 # Configurar Bounds si están disponibles
                 bounds = metadata.get_mapdrawer_bounds()
                 if bounds:
+                    ulx, uly, lrx, lry = bounds
+                    
+                    LAT_LIMIT_BOTTOM = 9.0
+                    if lry > LAT_LIMIT_BOTTOM:
+                        shift = lry - LAT_LIMIT_BOTTOM
+                        debug_msg(f"Ajustando bounds (latmin > {LAT_LIMIT_BOTTOM}): Desplazando -{shift} deg.")
+                        lry -= shift
+                        uly -= shift
+                        bounds = (ulx, uly, lrx, lry)
+
+                    debug_msg(f"Bounds geográficos: {bounds}")
                     mapper.set_bounds(*bounds)
 
                 # Recorte (Clip)
@@ -549,8 +560,21 @@ def main():
                         name = parts[0]
                         color = parts[1] if len(parts) > 1 else 'yellow'
                         width = float(parts[2]) if len(parts) > 2 else 1.0
-                        debug_msg(f"Dibujando capa {name} con color {color} y grosor {width}")
-                        mapper.draw_layer(name, color=color, width=width)
+                        
+                        if name.startswith('grid'):
+                            try:
+                                interval = int(name.replace('grid', ''))
+                            except ValueError:
+                                interval = 10
+                            
+                            labels = False
+                            if len(parts) > 3 and parts[3].lower() in ('labels', 'label', 'l'):
+                                labels = True
+                            debug_msg(f"Dibujando grilla {interval} con color {color}, grosor {width}, labels={labels}")
+                            mapper.draw_grid(interval=interval, color=color, width=width, labels=labels)
+                        else:
+                            debug_msg(f"Dibujando capa {name} con color {color} y grosor {width}")
+                            mapper.draw_layer(name, color=color, width=width)
 
                 # Dibujar Logo
                 if args.logo_pos is not None:
