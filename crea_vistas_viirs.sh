@@ -4,41 +4,108 @@
 SOURCE_DIR="/dataservice/npp-jpss1/viirs/level2"
 DEST_DIR="/var/www/html/polar/jpss/viirs"
 
-# 1. Obtener archivos más recientes que no hayan sido procesados
+# 1. Obtener archivos *.tif más recientes (última hora)
+FILES=()
 
-# 2. Preparamos los parámetros 
+# Clavrx: cloud_type, cloud_phase, cld_temp_acha, cld_height_acha, cld_emiss_acha
+CLAVRX_DIR="${SOURCE_DIR}/clavrx"
+if [ -d "$CLAVRX_DIR" ]; then
+    while IFS= read -r -d '' file; do
+        FILES+=("$file")
+    done < <(find "$CLAVRX_DIR" -maxdepth 1 -type f \( \
+        -name "*cloud_type*.tif" -o \
+        -name "*cloud_phase*.tif" -o \
+        -name "*cld_temp_acha*.tif" -o \
+        -name "*cld_height_acha*.tif" -o \
+        -name "*cld_emiss_acha*.tif" \
+        \) -mmin -60 -print0)
+fi
 
-# Definimos los argumentos como un arreglo
+# Acspo: sst
+ACSPO_DIR="${SOURCE_DIR}/acspo"
+if [ -d "$ACSPO_DIR" ]; then
+    while IFS= read -r -d '' file; do
+        FILES+=("$file")
+    done < <(find "$ACSPO_DIR" -maxdepth 1 -type f -name "*sst*.tif" -mmin -60 -print0)
+fi
 
+# Fire: confidence_cat
+FIRE_DIR="${SOURCE_DIR}/fire"
+if [ -d "$FIRE_DIR" ]; then
+    while IFS= read -r -d '' file; do
+        FILES+=("$file")
+    done < <(find "$FIRE_DIR" -maxdepth 1 -type f -name "*confidence_cat*.tif" -mmin -60 -print0)
+fi
 
-# Elegimos la paleta
-if "cloud_type" in filename:
-	paleta="cloud_type.cpt"
-elif "cloud_phase" in filename:
-	paleta="phase.cpt"
-elif "cld_temp_acha" in filename:
-	paleta="cld_temp_acha.cpt"
-elif "sst" in filename:
-	paleta="sst.cpt"
-elif "viirs_confidence_cat" in filename:
-	paleta="viirs_confidence_cat.cpt"
+# 2. y 3. Procesar archivos
+echo "Iniciando procesamiento de ${#FILES[@]} archivos..."
 
-args=(
-  --layer COUNTRIES:yellow:0.5 
-  --layer MEXSTATES:yellow:0.5 
-  --logo-pos 0 
-  --logo-size 0.2 
-  --font-size 0.025 
-  --timestamp-pos 1 
-  --font-color white 
-  -s 0.5 
-  -j
-  -p "$paleta"
-)
+for filepath in "${FILES[@]}"; do
+    filename=$(basename "$filepath")
+    
+    # Determinar paleta y directorio de salida
+    paleta=""
+    outdir=""
+    
+    if [[ "$filename" == *"cloud_type"* ]]; then
+        paleta="cloud_type.cpt"
+        outdir="clouds"
+    elif [[ "$filename" == *"cloud_phase"* ]]; then
+        paleta="phase.cpt"
+        outdir="clouds"
+    elif [[ "$filename" == *"cld_temp_acha"* ]]; then
+        paleta="cld_temp_acha.cpt"
+        outdir="clouds"
+    elif [[ "$filename" == *"cld_height_acha"* ]]; then
+        paleta="cld_height_acha.cpt"
+        outdir="clouds"
+    elif [[ "$filename" == *"cld_emiss_acha"* ]]; then
+        outdir="clouds"
+        paleta="cld_emiss.cpt"
+    elif [[ "$filename" == *"sst"* ]]; then
+        paleta="sst.cpt"
+        outdir="sst"
+    elif [[ "$filename" == *"confidence_cat"* ]]; then
+        paleta="viirs_confidence_cat.cpt"
+        outdir="fires"
+    else
+        continue
+    fi
 
-# 3. Creamos las vistas
-echo "Iniciando procesamiento..."
+    # Crear directorio destino
+    FULL_DEST_DIR="${DEST_DIR}/${outdir}"
+    mkdir -p "$FULL_DEST_DIR"
 
-geotiff2view "$filename" "${args[@]}"
+    # Definir argumentos
+    args=(
+        --layer "COUNTRIES:yellow:0.5"
+        --layer "MEXSTATES:yellow:0.5"
+        --logo-pos 0
+        --logo-size 0.2
+        --font-size 0.025
+        --timestamp-pos 1
+        --font-color white
+        -s 0.5
+        -b
+        -j
+    )
+    
+    if [ -n "$paleta" ]; then
+        args+=("-p" "$paleta")
+    fi
+
+    # Nombre de salida (tif -> jpg)
+    outfilename="${filename%.*}.jpg"
+    
+    # Verificar si el archivo de salida ya existe para omitirlo
+    if [ -f "$FULL_DEST_DIR/$outfilename" ]; then
+        # echo "Omitiendo: $FULL_DEST_DIR/$outfilename (ya existe)"
+        continue
+    fi
+
+    # Ejecutar geotiff2view
+    echo "Generando: $FULL_DEST_DIR/$outfilename"
+    geotiff2view "$filepath" "${args[@]}" -o "$FULL_DEST_DIR/$outfilename"
+done
 
 echo "Proceso completado."
