@@ -12,6 +12,8 @@ LANOT - Laboratorio Nacional de Observación de la Tierra
 
 import json
 import os
+import re
+from datetime import datetime
 
 class Metadata:
     """
@@ -188,3 +190,167 @@ class Metadata:
         """
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
+
+    def enrich_from_filename(self, filename):
+        """
+        Fill missing metadata fields by parsing the file name.
+
+        Only sets fields that are not already present (fallback logic).
+        Detected fields: timestamp, satellite, sensor, band, product.
+
+        Satellite tokens (prefix or substring):
+            npp            → Suomi NPP
+            noaa20 / j01   → NOAA-20
+            noaa21 / j02   → NOAA-21
+            noaa22 / j03   → NOAA-22
+            metopc         → Metop-C
+            metopb         → Metop-B
+            metopa         → Metop-A
+
+        Sensor tokens (substring):
+            viirs → VIIRS
+            avhrr → AVHRR
+            modis → MODIS
+            abi   → ABI
+            mhs   → MHS
+            amsu  → AMSU-A
+
+        Timestamp patterns (in order of priority):
+            YYYYMMDD_HHMMSS  (e.g. 20260325_195149)
+            YYYYjjjHHMM      (Julian day, e.g. 2026084195149)
+
+        Band patterns:
+            M01–M16, I01–I05, C01–C16, DNB, band01 …
+
+        Product keywords (substring, case-insensitive):
+            sst, true_color, cloud_phase, cloud_type,
+            cld_temp_acha, cld_height_acha, cld_emiss_acha,
+            dnb, fire
+
+        Args:
+            filename (str): Path or basename of the file.
+
+        Returns:
+            self: For chaining.
+        """
+        basename = os.path.basename(filename)
+        lower = basename.lower()
+
+        # --- timestamp ---
+        if 'timestamp' not in self:
+            # Pattern 1: YYYYMMDD_HHMMSS
+            m = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", basename)
+            if m:
+                try:
+                    dt = datetime.strptime("".join(m.groups()), "%Y%m%d%H%M%S")
+                    self['timestamp'] = dt.strftime("%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    pass
+
+            # Pattern 2: YYYYjjjHHMM (Julian day)
+            if 'timestamp' not in self:
+                m = re.search(r"(\d{4})(\d{3})(\d{4})", basename)
+                if m:
+                    yyyy, jjj, hhmm = m.groups()
+                    try:
+                        dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
+                        self['timestamp'] = dt.strftime("%Y:%m:%d %H:%M:%S")
+                    except ValueError:
+                        pass
+
+        # --- satellite ---
+        if 'satellite' not in self:
+            if lower.startswith('npp') or '_npp_' in lower:
+                self['satellite'] = 'Suomi NPP'
+            elif 'noaa20' in lower or lower.startswith('j01'):
+                self['satellite'] = 'NOAA-20'
+            elif 'noaa21' in lower or lower.startswith('j02'):
+                self['satellite'] = 'NOAA-21'
+            elif 'noaa22' in lower or lower.startswith('j03'):
+                self['satellite'] = 'NOAA-22'
+            elif 'metopc' in lower:
+                self['satellite'] = 'Metop-C'
+            elif 'metopb' in lower:
+                self['satellite'] = 'Metop-B'
+            elif 'metopa' in lower:
+                self['satellite'] = 'Metop-A'
+
+        # --- sensor ---
+        if 'sensor' not in self:
+            if 'viirs' in lower:
+                self['sensor'] = 'VIIRS'
+            elif 'avhrr' in lower:
+                self['sensor'] = 'AVHRR'
+            elif 'modis' in lower:
+                self['sensor'] = 'MODIS'
+            elif 'abi' in lower:
+                self['sensor'] = 'ABI'
+            elif 'mhs' in lower:
+                self['sensor'] = 'MHS'
+            elif 'amsu' in lower:
+                self['sensor'] = 'AMSU-A'
+
+        # --- band ---
+        if 'band' not in self:
+            m = re.search(r"(?:^|[_.])((?:M|I|C)\d{1,2}|DNB|band\d+)(?:[_.]|$)",
+                          basename, re.IGNORECASE)
+            if m:
+                self['band'] = m.group(1).upper()
+
+        # --- product (only if no band detected) ---
+        if not self.get('band') and 'product' not in self:
+            product_map = [
+                ('true_color',       'True Color'),
+                ('sst',              'SST'),
+                ('cloud_phase',      'Cloud Phase'),
+                ('cloud_type',       'Cloud Type'),
+                ('cld_temp_acha',    'Cloud Top Temp'),
+                ('cld_height_acha',  'Cloud Top Height'),
+                ('cld_emiss_acha',   'Cloud Emissivity'),
+                ('fire',             'Fire'),
+                ('dnb',              'DNB'),
+            ]
+            for token, label in product_map:
+                if token in lower:
+                    self['product'] = label
+                    break
+
+        return self
+
+    def format_timestamp(self, fmt="%Y/%m/%d %H:%MZ", include_satellite=True,
+                         include_sensor=False):
+        """
+        Return a display string combining satellite/sensor info and the timestamp.
+
+        Normalizes the stored timestamp from TIFF format (YYYY:MM:DD HH:MM:SS)
+        or ISO format to the requested display format.
+
+        Args:
+            fmt (str): strftime format for the date portion.
+            include_satellite (bool): Prepend satellite name if available.
+            include_sensor (bool): Prepend sensor name if available.
+
+        Returns:
+            str or None: Formatted string, or None if no timestamp present.
+        """
+        if 'timestamp' not in self:
+            return None
+
+        ts = self['timestamp']
+        # Normalize TIFF standard format
+        for parse_fmt in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%dT%H:%M:%SZ",
+                          "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%MZ"):
+            try:
+                dt = datetime.strptime(ts, parse_fmt)
+                ts = dt.strftime(fmt)
+                break
+            except ValueError:
+                continue
+
+        parts = []
+        if include_satellite and 'satellite' in self:
+            parts.append(self['satellite'])
+        if include_sensor and 'sensor' in self:
+            parts.append(self['sensor'])
+        parts.append(ts)
+        return " ".join(parts)

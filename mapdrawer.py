@@ -908,26 +908,7 @@ def calculate_size(value, ref_size, default=0):
         return default
 
 
-def get_timestamp_from_filename(filename):
-    """
-    Intenta extraer una marca de tiempo del nombre del archivo.
-    Soporta formato Juliano (YYYYjjjHHMM).
-    """
-    import re
-    from datetime import datetime
 
-    basename = os.path.basename(filename)
-
-    # Patrón: YYYYjjjHHMM (Julian)
-    match = re.search(r"(\d{4})(\d{3})(\d{4})", basename)
-    if match:
-        yyyy, jjj, hhmm = match.groups()
-        try:
-            dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
-            return dt.strftime("%Y/%m/%d %H:%MZ")
-        except ValueError:
-            pass
-    return None
 
 # --- Bloque Principal para pruebas ---
 
@@ -1162,46 +1143,27 @@ def main():
         mapper.draw_logo(logosize=logo_size, position=args.logo_pos)
 
     # 7. Fecha
-    # Solo mostrar fecha si se especificó --timestamp, --timestamp-pos,
-    # o se detecta patrón de fecha en el nombre del archivo
+    # Solo mostrar fecha si se especificó --timestamp o --timestamp-pos
     ts = None
     pos = None
-
-    # Función auxiliar para formatear timestamp
-    def format_ts(t_str, sat=None):
-        # Intentar normalizar formato TIFF estándar (YYYY:MM:DD HH:MM:SS)
-        try:
-            dt = datetime.strptime(t_str, "%Y:%m:%d %H:%M:%S")
-            t_str = dt.strftime("%Y/%m/%d %H:%MZ")
-        except ValueError:
-            pass
-        if sat:
-            t_str = f"{sat} {t_str}"
-        return t_str
 
     if args.timestamp:
         # Usuario especificó texto explícito
         ts = args.timestamp
         pos = args.timestamp_pos if args.timestamp_pos is not None else 2
     elif args.timestamp_pos is not None:
-        # Solo se dio --timestamp-pos
-        if 'timestamp' in metadata:
-            ts = format_ts(metadata['timestamp'], metadata.get('satellite'))
-        else:
-            # Usar fecha actual si no hay metadatos
+        # Completar metadatos faltantes desde el nombre del archivo
+        metadata.enrich_from_filename(args.input_image)
+        ts = metadata.format_timestamp(include_satellite=True, include_sensor=True)
+        if not ts:
             ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
         pos = args.timestamp_pos
     else:
         # No se especificó posición: solo informar si se detecta fecha, pero NO dibujar por defecto
-        # para mantener consistencia con geotiff2view.
-        if 'timestamp' in metadata:
-            print(
-                f"Info: Fecha detectada en metadatos: {format_ts(metadata['timestamp'], metadata.get('satellite'))}")
-        else:
-            # Intentar extraer del nombre (YYYYjjjHHMM)
-            detected_ts = get_timestamp_from_filename(args.input_image)
-            if detected_ts:
-                print(f"Info: Fecha detectada en nombre: {detected_ts}")
+        metadata.enrich_from_filename(args.input_image)
+        detected = metadata.format_timestamp(include_satellite=True, include_sensor=True)
+        if detected:
+            print(f"Info: Fecha detectada: {detected}")
 
     if ts is not None and pos is not None:
         mapper.draw_fecha(ts, position=pos, fontsize=font_size,

@@ -585,104 +585,20 @@ def main():
                 # Dibujar Timestamp
                 ts_text = None
                 ts_pos = args.timestamp_pos
-                
+
                 if args.timestamp:
                     ts_text = args.timestamp
                     if ts_pos is None: ts_pos = 2
                 elif ts_pos is not None:
-                    # 1. Intentar usar metadatos
-                    if 'timestamp' in metadata:
-                        ts_text = metadata['timestamp']
-                        # Intentar normalizar formato TIFF estándar (YYYY:MM:DD HH:MM:SS)
-                        try:
-                            dt = datetime.strptime(ts_text, "%Y:%m:%d %H:%M:%S")
-                            ts_text = dt.strftime("%Y/%m/%d %H:%MZ")
-                        except ValueError:
-                            pass
-
-                    # 2. Intentar extraer del nombre del archivo si no hay metadatos
+                    # Completar metadatos faltantes desde el nombre del archivo
+                    metadata.enrich_from_filename(args.input)
+                    ts_text = metadata.format_timestamp(include_satellite=True,
+                                                        include_sensor=True)
                     if not ts_text:
-                        # Patrón 1: YYYYjjjHHMM (Julian)
-                        match = re.search(r"(\d{4})(\d{3})(\d{4})", os.path.basename(args.input))
-                        if match:
-                            yyyy, jjj, hhmm = match.groups()
-                            try:
-                                dt = datetime.strptime(f"{yyyy}{jjj}{hhmm}", "%Y%j%H%M")
-                                ts_text = dt.strftime("%Y/%m/%d %H:%MZ")
-                            except ValueError:
-                                pass
-                        
-                        # Patrón 2: YYYYMMDD_HHMMSS
-                        if not ts_text:
-                            match = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", os.path.basename(args.input))
-                            if match:
-                                try:
-                                    dt = datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
-                                    ts_text = dt.strftime("%Y/%m/%d %H:%MZ")
-                                except ValueError:
-                                    pass
-
-                if 'satellite' not in metadata:
-                    fname = os.path.basename(args.input).lower()
-                    if fname.startswith('npp'):
-                        metadata['satellite'] = 'Suomi NPP'
-                    elif fname.startswith('j01') or 'noaa20' in fname:
-                        metadata['satellite'] = 'NOAA-20'
-                    elif fname.startswith('j02') or 'noaa21' in fname:
-                        metadata['satellite'] = 'NOAA-21'
-                    elif 'metopc' in fname:
-                        metadata['satellite'] = 'Metop-C'
-                    elif 'metopb' in fname:
-                        metadata['satellite'] = 'Metop-B'
-                    elif 'metopa' in fname:
-                        metadata['satellite'] = 'Metop-A'
-
-                # Fallback: Si no hay band en metadatos, buscar en nombre de archivo
-                if 'band' not in metadata:
-                    # Regex para Mxx, Ixx, Cxx, DNB o bandXX
-                    match = re.search(r"[_]((?:M|I|C)\d{1,2}|DNB|band\d+)(?:[_.]|$)", os.path.basename(args.input))
-                    if match:
-                        metadata['band'] = match.group(1)
-                    else:
-                        metadata['band'] = ""
-
-                # Si no hay band, buscar product
-                if not metadata.get('band') and 'product' not in metadata:
-                     fname = os.path.basename(args.input)
-                     # Busqueda simple por palabras clave comunes en productos
-                     lower_fname = fname.lower()
-                     if 'sst' in lower_fname:
-                         metadata['product'] = 'SST'
-                     elif 'cloud_phase' in lower_fname:
-                         metadata['product'] = 'Cloud Phase'
-                     elif 'cloud_type' in lower_fname:
-                         metadata['product'] = 'Cloud Type'
-                     elif 'cld_temp_acha' in lower_fname:
-                         metadata['product'] = 'Cloud Top Temp'
-                     elif 'cld_height_acha' in lower_fname:
-                         metadata['product'] = 'Cloud Top Height'
-                     elif 'cld_emiss_acha' in lower_fname:
-                         metadata['product'] = 'Cloud Emissivity'
-                     elif 'dnb' in lower_fname:
-                         metadata['product'] = 'DNB'
-                     elif 'fire' in lower_fname:
-                         metadata['product'] = 'Fire'
+                        from datetime import timezone
+                        ts_text = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
 
                 if ts_text and ts_pos is not None:
-                    # Si se detectó satélite y estamos en modo automático, agregarlo al texto
-                    if not args.timestamp:
-                        parts = []
-                        if 'satellite' in metadata:
-                            parts.append(metadata['satellite'])
-                        
-                        if 'band' in metadata and metadata['band']:
-                            parts.append(metadata['band'])
-                        elif 'product' in metadata and metadata['product']:
-                             parts.append(metadata['product'])
-                             
-                        parts.append(ts_text)
-                        ts_text = " ".join(parts)
-                        
                     default_fsize = max(15, int(img.width * 0.015))
                     fsize = calculate_size(args.font_size, img.width, default_fsize)
                     mapper.draw_fecha(ts_text, position=ts_pos, fontsize=fsize, color=args.font_color)
