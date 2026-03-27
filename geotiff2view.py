@@ -490,20 +490,26 @@ def main():
             resample_method = Image.Resampling.NEAREST
         img = img.resize((new_w, new_h), resample=resample_method)
 
+    uses_mapdrawer = (args.logo_pos is not None or args.layer or args.timestamp_pos is not None
+                       or args.timestamp or args.legend_pos is not None or args.clip)
+
     if palette:
         if img.mode == 'L':
             img.putpalette(palette)
-            barsz = img.height // 20
-            # Usar el método de la clase CPT
-            cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height-2*barsz, img.width, barsz, font_size=barsz//2)
-            
+
             if args.alpha and n_idx is not None:
                 img.info['transparency'] = n_idx
+
+            # Si no habrá MapDrawer, dibujar el colorbar ahora (en modo paleta).
+            # Si hay MapDrawer, se dibuja DESPUÉS para no interferir con la georreferencia.
+            if not uses_mapdrawer:
+                barsz = img.height // 20
+                cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height - 2*barsz, img.width, barsz, font_size=barsz//2)
         else:
             print("Advertencia: La imagen no es de un solo canal (L), se ignora la paleta.", file=sys.stderr)
 
     # Integración con MapDrawer (Capas y Logo)
-    if (args.logo_pos is not None or args.layer or args.timestamp_pos is not None or args.timestamp or args.legend_pos is not None or args.clip):
+    if uses_mapdrawer:
         # MapDrawer requiere un modo de color directo (RGB/RGBA) para dibujar elementos con colores arbitrarios (capas, logos, texto).
         if img.mode == 'L' or img.mode == 'P':
             debug_msg("Convirtiendo imagen a RGB/RGBA para MapDrawer")
@@ -520,16 +526,6 @@ def main():
                 # Configurar Bounds si están disponibles
                 bounds = metadata.get_mapdrawer_bounds()
                 if bounds:
-                    ulx, uly, lrx, lry = bounds
-                    
-                    LAT_LIMIT_BOTTOM = 9.0
-                    if lry > LAT_LIMIT_BOTTOM:
-                        shift = lry - LAT_LIMIT_BOTTOM
-                        debug_msg(f"Ajustando bounds (latmin > {LAT_LIMIT_BOTTOM}): Desplazando -{shift} deg.")
-                        lry -= shift
-                        uly -= shift
-                        bounds = (ulx, uly, lrx, lry)
-
                     debug_msg(f"Bounds geográficos: {bounds}")
                     mapper.set_bounds(*bounds)
 
@@ -632,7 +628,13 @@ def main():
                 # Recuperar la imagen del mapper por si hubo recorte
                 if mapper.image:
                     img = mapper.image
-                    
+
+                # Dibujar colorbar al final, sobre la imagen ya decorada, para no
+                # interferir con la georreferencia de las capas vectoriales.
+                if palette and cpt_obj:
+                    barsz = img.height // 20
+                    cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height - 2*barsz, img.width, barsz, font_size=barsz//2)
+
             except Exception as e:
                 print(f"Error en MapDrawer: {e}", file=sys.stderr)
         else:
