@@ -222,10 +222,10 @@ class Metadata:
         Band patterns:
             M01–M16, I01–I05, C01–C16, DNB, band01 …
 
-        Product keywords (substring, case-insensitive):
+        Product keywords (substring, case-insensitive, searched in full path):
             sst, true_color, cloud_phase, cloud_type,
             cld_temp_acha, cld_height_acha, cld_emiss_acha,
-            dnb, fire
+            flood, water, dnb, fire
 
         Args:
             filename (str): Path or basename of the file.
@@ -235,6 +235,7 @@ class Metadata:
         """
         basename = os.path.basename(filename)
         lower = basename.lower()
+        lower_full = filename.lower()  # used for product matching (includes directory)
 
         # --- timestamp ---
         if 'timestamp' not in self:
@@ -247,7 +248,18 @@ class Metadata:
                 except ValueError:
                     pass
 
-            # Pattern 2: YYYYjjjHHMM (Julian day)
+            # Pattern 2: VIIRS standard d{YYYYMMDD}_t{HHMMSST} (tenths of seconds)
+            if 'timestamp' not in self:
+                m = re.search(r"d(\d{8})_t(\d{6})\d", basename)
+                if m:
+                    date_str, time_str = m.groups()
+                    try:
+                        dt = datetime.strptime(date_str + time_str, "%Y%m%d%H%M%S")
+                        self['timestamp'] = dt.strftime("%Y:%m:%d %H:%M:%S")
+                    except ValueError:
+                        pass
+
+            # Pattern 3: YYYYjjjHHMM (Julian day)
             if 'timestamp' not in self:
                 m = re.search(r"(\d{4})(\d{3})(\d{4})", basename)
                 if m:
@@ -262,11 +274,11 @@ class Metadata:
         if 'satellite' not in self:
             if lower.startswith('npp') or '_npp_' in lower:
                 self['satellite'] = 'Suomi NPP'
-            elif 'noaa20' in lower or lower.startswith('j01'):
+            elif 'noaa20' in lower or re.search(r'(?:^|[_.-])j01(?:[_.-]|$)', lower):
                 self['satellite'] = 'NOAA-20'
-            elif 'noaa21' in lower or lower.startswith('j02'):
+            elif 'noaa21' in lower or re.search(r'(?:^|[_.-])j02(?:[_.-]|$)', lower):
                 self['satellite'] = 'NOAA-21'
-            elif 'noaa22' in lower or lower.startswith('j03'):
+            elif 'noaa22' in lower or re.search(r'(?:^|[_.-])j03(?:[_.-]|$)', lower):
                 self['satellite'] = 'NOAA-22'
             elif 'metopc' in lower:
                 self['satellite'] = 'Metop-C'
@@ -307,20 +319,28 @@ class Metadata:
                 ('cld_temp_acha',    'Cloud Top Temp'),
                 ('cld_height_acha',  'Cloud Top Height'),
                 ('cld_emiss_acha',   'Cloud Emissivity'),
+                ('flood',            'Flood'),
+                ('water',            'Flood'),
                 ('fire',             'Fire'),
                 ('dnb',              'DNB'),
             ]
+            # Priority: basename first, then full path (directory) as fallback
             for token, label in product_map:
                 if token in lower:
                     self['product'] = label
                     break
+            if 'product' not in self:
+                for token, label in product_map:
+                    if token in lower_full:
+                        self['product'] = label
+                        break
 
         return self
 
     def format_timestamp(self, fmt="%Y/%m/%d %H:%MZ", include_satellite=True,
-                         include_sensor=False):
+                         include_sensor=False, include_product=False):
         """
-        Return a display string combining satellite/sensor info and the timestamp.
+        Return a display string combining satellite/sensor/product info and the timestamp.
 
         Normalizes the stored timestamp from TIFF format (YYYY:MM:DD HH:MM:SS)
         or ISO format to the requested display format.
@@ -329,12 +349,19 @@ class Metadata:
             fmt (str): strftime format for the date portion.
             include_satellite (bool): Prepend satellite name if available.
             include_sensor (bool): Prepend sensor name if available.
+            include_product (bool): Append product name if available.
 
         Returns:
-            str or None: Formatted string, or None if no timestamp present.
+            str or None: Formatted string, or None if nothing to show.
         """
+        parts = []
+        if include_satellite and 'satellite' in self:
+            parts.append(self['satellite'])
+        if include_sensor and 'sensor' in self:
+            parts.append(self['sensor'])
+
         if 'timestamp' not in self:
-            return None
+            return " ".join(parts) if parts else None
 
         ts = self['timestamp']
         # Normalize TIFF standard format
@@ -347,10 +374,7 @@ class Metadata:
             except ValueError:
                 continue
 
-        parts = []
-        if include_satellite and 'satellite' in self:
-            parts.append(self['satellite'])
-        if include_sensor and 'sensor' in self:
-            parts.append(self['sensor'])
         parts.append(ts)
+        if include_product and 'product' in self:
+            parts.append(self['product'])
         return " ".join(parts)

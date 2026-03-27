@@ -592,8 +592,11 @@ def main():
                 elif ts_pos is not None:
                     # Completar metadatos faltantes desde el nombre del archivo
                     metadata.enrich_from_filename(args.input)
-                    ts_text = metadata.format_timestamp(include_satellite=True,
-                                                        include_sensor=True)
+                    has_product = bool(metadata.get('product'))
+                    ts_text = metadata.format_timestamp(
+                        include_satellite=True,
+                        include_sensor=not has_product,
+                        include_product=has_product)
                     if not ts_text:
                         from datetime import timezone
                         ts_text = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")

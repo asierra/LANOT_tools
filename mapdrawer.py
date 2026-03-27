@@ -1154,14 +1154,16 @@ def main():
     elif args.timestamp_pos is not None:
         # Completar metadatos faltantes desde el nombre del archivo
         metadata.enrich_from_filename(args.input_image)
-        ts = metadata.format_timestamp(include_satellite=True, include_sensor=True)
+        debug_msg(f"Metadatos del archivo: satellite={metadata.get('satellite')}, "
+                  f"product={metadata.get('product')}, sensor={metadata.get('sensor')}")
+        ts = metadata.format_timestamp(include_satellite=True, include_product=True)
         if not ts:
             ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
         pos = args.timestamp_pos
     else:
         # No se especificó posición: solo informar si se detecta fecha, pero NO dibujar por defecto
         metadata.enrich_from_filename(args.input_image)
-        detected = metadata.format_timestamp(include_satellite=True, include_sensor=True)
+        detected = metadata.format_timestamp(include_satellite=True, include_product=True)
         if detected:
             print(f"Info: Fecha detectada: {detected}")
 
