@@ -91,7 +91,7 @@ for filepath in "${FILES[@]}"; do
     )
     
     if [ -n "$paleta" ]; then
-        args+=("-p" "$paleta")
+        args+=("-p" "$paleta" "--lat-south" "11")
     fi
 
     # Nombre de salida (tif -> jpg)
