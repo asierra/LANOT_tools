@@ -59,3 +59,10 @@ quedó.
 Poder poner las capas en el mismo orden en que se ponen en la línea de
 comandos.
 
+
+Thu Mar 26 09:17:14 PM CST 2026
+
+Ya muestra los productos en la cadena de fecha en lugar de sensor
+cuando es oportuno. Falta unificar los scripts que usan geotiff2view y
+mapdrawer en uno solo que sepa cuándo usar uno u otro.
+
