@@ -6,7 +6,7 @@ Suite de procesamiento y visualización de imágenes satelitales GeoTIFF para LA
 
 LANOT_tools proporciona cuatro módulos integrados para el procesamiento de datos satelitales:
 
-- **geotiff2view.py** - Convierte GeoTIFF a imágenes visualizables (PNG/JPEG) con paletas de color (CPT), composiciones RGB y transparencia NoData
+- **geotiff2view.py** - Convierte GeoTIFF a imágenes visualizables (PNG/JPEG) con paletas de color (CPT), composiciones RGB y transparencia NoData. Usa MapDrawer internamente para capas, logos y leyendas cuando se solicitan
 - **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas y timestamps sobre imágenes con soporte para proyecciones GOES/EPSG
 - **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos
 - **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación
@@ -147,7 +147,7 @@ img.save("output.png")
 - **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
 - **Grillas lat/lon**: Gratículas con intervalos configurables y etiquetas direccionales N/S/E/W
 - **Metadata flexible**: Extracción automática de GeoTIFF o JSON sidecar
-- **Regiones predefinidas**: `conus`, `fulldisk` para recortes rápidos
+- **Regiones predefinidas**: `conus`, `fulldisk` y cualquier región definida en `docs/recortes_coordenadas.csv` de la instalación
 
 ## Paletas CPT incluidas
 
