@@ -375,6 +375,8 @@ class Metadata:
                 continue
 
         parts.append(ts)
-        if include_product and 'product' in self:
-            parts.append(self['product'])
+        if include_product:
+            val = self.get('band') or self.get('product')
+            if val:
+                parts.append(val)
         return " ".join(parts)

@@ -673,7 +673,7 @@ def main():
                 elif ts_pos is not None:
                     # Completar metadatos faltantes desde el nombre del archivo
                     metadata.enrich_from_filename(args.input)
-                    has_product = bool(metadata.get('product'))
+                    has_product = bool(metadata.get('product') or metadata.get('band'))
                     ts_text = metadata.format_timestamp(
                         include_satellite=True,
                         include_sensor=not has_product,
