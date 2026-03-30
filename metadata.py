@@ -65,7 +65,11 @@ class Metadata:
     def items(self):
         """Return dictionary items."""
         return self._data.items()
-    
+
+    def pop(self, key, *args):
+        """Dict-like pop: metadata.pop('key', default)"""
+        return self._data.pop(key, *args)
+
     def __repr__(self):
         """String representation for debugging."""
         return f"Metadata({self._data})"

@@ -673,6 +673,11 @@ def main():
                 elif ts_pos is not None:
                     # Completar metadatos faltantes desde el nombre del archivo
                     metadata.enrich_from_filename(args.input)
+                    # En modo RGB, ignorar banda detectada y usar 'RGB' si no hay producto definido
+                    if len(input_files) == 3:
+                        metadata.pop('band', None)
+                        if not metadata.get('product'):
+                            metadata['product'] = 'RGB'
                     has_product = bool(metadata.get('product') or metadata.get('band'))
                     ts_text = metadata.format_timestamp(
                         include_satellite=True,
