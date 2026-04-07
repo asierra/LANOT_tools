@@ -1075,8 +1075,12 @@ def main():
     elif 'bounds' in metadata:
         bounds = metadata.get_mapdrawer_bounds()
         if bounds:
-            if mapper.use_proj and target_crs == metadata.get('crs'):
-                # Usar bounds proyectados desde metadata
+            ulx, uly, lrx, lry = bounds
+            # Detect projected (non-lat/lon) bounds: lat/lon must be in [-180,180] x [-90,90]
+            is_projected = (abs(ulx) > 360 or abs(lrx) > 360 or
+                            abs(uly) > 90 or abs(lry) > 90)
+            if mapper.use_proj and is_projected:
+                # Bounds are in projected (meter) coordinates
                 b = metadata['bounds']
                 mapper.set_projected_bounds(min_x=b[0], min_y=b[1],
                                             max_x=b[2], max_y=b[3])
