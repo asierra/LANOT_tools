@@ -56,6 +56,83 @@ GOES_PROJECTIONS = {
     'goes19': '+proj=geos +h=35786023.0 +lon_0=-75.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
 }
 
+def _resolve_crs(crs_name):
+    """Resuelve un alias corto de CRS (ej. 'goes18') a su string Proj4/EPSG completo."""
+    if crs_name is None:
+        return None
+    resolved = GOES_PROJECTIONS.get(crs_name.lower(), crs_name)
+    return resolved
+
+
+def warp_pil_image(img, src_crs, src_bounds, dst_crs):
+    """Reproyecta una imagen PIL de src_crs a dst_crs.
+
+    Args:
+        img (PIL.Image): Imagen fuente (modo RGB o RGBA).
+        src_crs (str): CRS de la imagen fuente (Proj4, EPSG, o alias GOES).
+        src_bounds (tuple): Límites fuente (left, bottom, right, top) en unidades de src_crs.
+        dst_crs (str): CRS destino (ej. 'epsg:3857').
+
+    Returns:
+        tuple: (warped_img, dst_transform, dst_w, dst_h, new_bounds)
+               new_bounds es (left, bottom, right, top) en unidades de dst_crs.
+
+    Raises:
+        RuntimeError: Si rasterio no está disponible.
+    """
+    if not HAS_RASTERIO:
+        raise RuntimeError("rasterio es necesario para reproyectar (--o_crs). "
+                           "Instálalo con: pip install rasterio")
+
+    from rasterio.transform import from_bounds as transform_from_bounds
+    from rasterio.warp import calculate_default_transform, reproject, transform_bounds
+    from rasterio.warp import Resampling
+    from rasterio.crs import CRS
+
+    src_crs_obj = CRS.from_user_input(_resolve_crs(src_crs))
+    dst_crs_obj = CRS.from_user_input(_resolve_crs(dst_crs))
+
+    left, bottom, right, top = src_bounds
+    src_w, src_h = img.size
+
+    src_transform = transform_from_bounds(left, bottom, right, top, src_w, src_h)
+
+    dst_transform, dst_w, dst_h = calculate_default_transform(
+        src_crs_obj, dst_crs_obj, src_w, src_h, left=left, bottom=bottom, right=right, top=top)
+
+    # Separar bandas RGB y reproyectar cada una.
+    # Se añade una banda alpha sintética (todo 255) para que las áreas sin datos
+    # queden transparentes (alpha=0) en lugar de negras.
+    arr = np.array(img.convert('RGB'))  # siempre H×W×3
+    n_rgb = 3
+    bands_to_warp = [arr[:, :, i].astype(np.float32) for i in range(n_rgb)]
+    # Banda alpha sintética: todo opaco en el origen
+    bands_to_warp.append(np.full((src_h, src_w), 255, dtype=np.float32))
+
+    warped_bands = []
+    for src_band in bands_to_warp:
+        dst_band = np.zeros((dst_h, dst_w), dtype=np.float32)
+        reproject(
+            source=src_band,
+            destination=dst_band,
+            src_transform=src_transform,
+            src_crs=src_crs_obj,
+            dst_transform=dst_transform,
+            dst_crs=dst_crs_obj,
+            resampling=Resampling.bilinear,
+            src_nodata=None,
+            dst_nodata=0,
+        )
+        warped_bands.append(dst_band.astype(np.uint8))
+
+    warped_arr = np.dstack(warped_bands)  # H×W×4 (RGBA)
+    warped_img = Image.fromarray(warped_arr, mode='RGBA')
+
+    new_bounds = transform_bounds(src_crs_obj, dst_crs_obj, left, bottom, right, top)
+
+    return warped_img, dst_transform, dst_w, dst_h, new_bounds
+
+
 # Regiones predefinidas (ulx, uly, lrx, lry)
 # Valores típicos para GOES-16 (East)
 PREDEFINED_REGIONS = {
@@ -958,7 +1035,7 @@ def main():
     # Leyenda
     parser.add_argument("--cpt", help="Archivo CPT para generar leyenda")
     parser.add_argument(
-        "--metadata", help="Archivo JSON con metadatos (CRS, bounds, timestamp) para imágenes sin georreferencia.")
+        "--metadata",  "-m", help="Archivo JSON con metadatos (CRS, bounds, timestamp) para imágenes sin georreferencia.")
     parser.add_argument("--legend-pos", type=int,
                         choices=[0, 1, 2, 3], help="Posición de la leyenda (0-3)")
     parser.add_argument("--scale", "-s", type=float,
@@ -966,6 +1043,9 @@ def main():
 
     parser.add_argument("--jpeg", "-j", action="store_true",
                         help="Guardar salida en formato JPEG (por defecto PNG)")
+    parser.add_argument("--o_crs",
+                        help="Reproyectar la salida a este CRS antes de dibujar (ej: 'epsg:3857', 'epsg:4326'). "
+                             "Requiere que los metadatos tengan CRS y bounds.")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Mostrar mensajes de depuración")
 
@@ -1032,6 +1112,30 @@ def main():
         debug_msg(
             f"Escalando imagen de {img.size} a {(new_w, new_h)} (Factor: {args.scale})")
         img = img.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
+
+    # Reproyección de salida (--o_crs): ocurre ANTES de dibujar overlays
+    dst_transform = None
+    o_crs_used = args.o_crs if hasattr(args, 'o_crs') else None
+    if o_crs_used:
+        src_crs = metadata.get('crs')
+        if not src_crs:
+            print("Error: --o_crs requiere que los metadatos tengan 'crs'. "
+                  "Usa --metadata o asegúrate de que la imagen tenga CRS.", file=sys.stderr)
+            sys.exit(1)
+        if 'bounds' not in metadata:
+            print("Error: --o_crs requiere que los metadatos tengan 'bounds'.", file=sys.stderr)
+            sys.exit(1)
+        src_bounds = tuple(metadata['bounds'])  # (left, bottom, right, top)
+        print(f"Info: Reproyectando de '{src_crs}' a '{o_crs_used}'...")
+        try:
+            img, dst_transform, dst_w, dst_h, new_bounds = warp_pil_image(
+                img, src_crs, src_bounds, o_crs_used)
+            metadata['crs'] = o_crs_used
+            metadata['bounds'] = list(new_bounds)
+            debug_msg(f"Reproyección completada. Nuevo tamaño: {img.size}, nuevos bounds: {new_bounds}")
+        except Exception as e:
+            print(f"Error durante la reproyección: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Calcular tamaños dinámicos si no se especifican
     img_width = img.width
@@ -1213,8 +1317,37 @@ def main():
             output_path = f"{base_name}{default_ext}"
 
     try:
-        img.save(output_path)
-        print(f"Imagen guardada en {output_path}")
+        out_ext = os.path.splitext(output_path)[1].lower()
+        if dst_transform is not None and out_ext in ('.tif', '.tiff') and HAS_RASTERIO:
+            # Escribir GeoTIFF con georreferencia
+            from rasterio.crs import CRS as RioCRS
+            from rasterio.enums import ColorInterp
+            arr = np.array(img)
+            n_bands = arr.shape[2] if arr.ndim == 3 else 1
+            # Asignar interpretación de color: RGB + alpha si hay 4 bandas
+            if n_bands == 4:
+                color_interps = [ColorInterp.red, ColorInterp.green,
+                                 ColorInterp.blue, ColorInterp.alpha]
+            else:
+                color_interps = None
+            with rasterio.open(
+                output_path, 'w',
+                driver='GTiff',
+                height=arr.shape[0],
+                width=arr.shape[1],
+                count=n_bands,
+                dtype=arr.dtype,
+                crs=RioCRS.from_user_input(_resolve_crs(o_crs_used)),
+                transform=dst_transform,
+            ) as dst:
+                for i in range(n_bands):
+                    dst.write(arr[:, :, i] if arr.ndim == 3 else arr, i + 1)
+                if color_interps:
+                    dst.colorinterp = color_interps
+            print(f"GeoTIFF guardado en {output_path}")
+        else:
+            img.save(output_path)
+            print(f"Imagen guardada en {output_path}")
     except Exception as e:
         print(f"Error guardando imagen: {e}", file=sys.stderr)
         sys.exit(1)
