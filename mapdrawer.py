@@ -1348,6 +1348,14 @@ def main():
         else:
             img.save(output_path)
             print(f"Imagen guardada en {output_path}")
+            # Sidecar JSON cuando se usó --o_crs y la salida no es GeoTIFF
+            if o_crs_used and metadata:
+                sidecar_path = os.path.splitext(output_path)[0] + ".json"
+                try:
+                    metadata.save_json(sidecar_path)
+                    print(f"Sidecar de metadatos guardado en {sidecar_path}")
+                except Exception as je:
+                    print(f"Advertencia: No se pudo guardar el sidecar JSON: {je}", file=sys.stderr)
     except Exception as e:
         print(f"Error guardando imagen: {e}", file=sys.stderr)
         sys.exit(1)
