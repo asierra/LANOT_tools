@@ -1137,17 +1137,6 @@ def main():
             print(f"Error durante la reproyección: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # Calcular tamaños dinámicos si no se especifican
-    img_width = img.width
-
-    # Logo: 10% del ancho, mínimo 64px
-    default_logo = max(64, int(img_width * 0.10))
-    logo_size = calculate_size(args.logo_size, img_width, default_logo)
-
-    # Fuente: 1.5% del ancho, mínimo 15px
-    default_font = max(15, int(img_width * 0.015))
-    font_size = calculate_size(args.font_size, img_width, default_font)
-
     # 2. Inicializar MapDrawer
     target_crs = args.crs if args.crs else metadata.get('crs')
     if target_crs and target_crs == metadata.get('crs'):
@@ -1218,6 +1207,17 @@ def main():
             else:
                 print(
                     f"Error: Región de recorte '{args.clip}' no encontrada.", file=sys.stderr)
+
+    # Calcular tamaños dinámicos respecto a la imagen post-recorte
+    img_width = mapper.image.width
+
+    # Logo: 10% del ancho, mínimo 64px
+    default_logo = max(64, int(img_width * 0.10))
+    logo_size = calculate_size(args.logo_size, img_width, default_logo)
+
+    # Fuente: 1.5% del ancho, mínimo 15px
+    default_font = max(15, int(img_width * 0.015))
+    font_size = calculate_size(args.font_size, img_width, default_font)
 
     # 5. Dibujar capas
     if args.layer and bounds_set:
