@@ -829,7 +829,7 @@ class MapDrawer:
             pos_x = position & 1
             pos_y = position >> 1
 
-            margin = 10
+            margin = max(10, fontsize)
 
             if pos_x:  # Right
                 x = self.image.width - text_width - margin
