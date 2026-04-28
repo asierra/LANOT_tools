@@ -919,6 +919,46 @@ class MapDrawer:
 
             cy += lh
 
+    def overlay_glm(self, glm_files, metadata, color=(255, 255, 0)):
+        """
+        Compone una capa de densidad GLM sobre self.image.
+
+        Requiere que set_image() y set_bounds() hayan sido llamados previamente.
+        Actualiza self.image con el resultado compuesto. Almacena el rango
+        temporal de los archivos GLM en el objeto metadata recibido como
+        'glm_time_start' y 'glm_time_end'.
+
+        Args:
+            glm_files (list[str]): Rutas a los archivos NetCDF GLM.
+            metadata: Instancia de Metadata con 'crs' y 'bounds'.
+            color (tuple): Color RGB base de los rayos. Default amarillo (255,255,0).
+        """
+        if self.image is None:
+            print("Error overlay_glm: imagen no establecida.", file=sys.stderr)
+            return
+
+        try:
+            from glm_renderer import render_glm_layer
+        except ImportError:
+            print("Error: glm_renderer no encontrado. "
+                  "Asegúrate de que glm_renderer.py esté en el path.", file=sys.stderr)
+            return
+
+        # Inyectar tamaño de imagen en metadata para que el renderer use
+        # las dimensiones reales en lugar del valor por defecto.
+        metadata['image_size'] = (self.image.width, self.image.height)
+
+        glm_layer = render_glm_layer(glm_files, metadata, base_color=color)
+        if glm_layer is None:
+            print("Advertencia: overlay_glm no generó capa (sin datos o error).",
+                  file=sys.stderr)
+            return
+
+        self.image = Image.alpha_composite(
+            self.image.convert('RGBA'), glm_layer).convert('RGB')
+        debug_msg(f"overlay_glm: capa compuesta. Rango: "
+                  f"{metadata.get('glm_time_start')} – {metadata.get('glm_time_end')}")
+
     def parse_cpt(self, cpt_path):
         """
         Parsea un archivo CPT y devuelve una lista de items para la leyenda.
@@ -1048,6 +1088,13 @@ def main():
                              "Requiere que los metadatos tengan CRS y bounds.")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Mostrar mensajes de depuración")
+
+    # GLM overlay
+    parser.add_argument("--glm", nargs='+', metavar="FILE",
+                        help="Archivos NetCDF GLM a sobreponer sobre la imagen base.")
+    parser.add_argument("--glm-color", default="yellow",
+                        choices=["yellow", "magenta", "white"],
+                        help="Color base de los rayos GLM (default: yellow).")
 
     args = parser.parse_args()
 
@@ -1219,7 +1266,17 @@ def main():
     default_font = max(15, int(img_width * 0.015))
     font_size = calculate_size(args.font_size, img_width, default_font)
 
-    # 5. Dibujar capas
+    # 5. Overlay GLM (antes de capas vectoriales para que queden encima)
+    if args.glm:
+        GLM_COLOR_MAP = {
+            'yellow':  (255, 255, 0),
+            'magenta': (255, 0, 255),
+            'white':   (255, 255, 255),
+        }
+        glm_color = GLM_COLOR_MAP.get(args.glm_color, (255, 255, 0))
+        mapper.overlay_glm(args.glm, metadata, color=glm_color)
+
+    # 6. Dibujar capas
     if args.layer and bounds_set:
         for layer_def in args.layer:
             parts = layer_def.split(':')
@@ -1264,7 +1321,11 @@ def main():
         metadata.enrich_from_filename(args.input_image)
         debug_msg(f"Metadatos del archivo: satellite={metadata.get('satellite')}, "
                   f"product={metadata.get('product')}, sensor={metadata.get('sensor')}")
-        ts = metadata.format_timestamp(include_satellite=True, include_product=True)
+        # Si hay datos GLM, usar cadena unificada ABI/GLM
+        if metadata.get('glm_time_start'):
+            ts = metadata.format_timestamp_glm()
+        else:
+            ts = metadata.format_timestamp(include_satellite=True, include_product=True)
         if not ts:
             ts = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
         pos = args.timestamp_pos

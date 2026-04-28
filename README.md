@@ -4,10 +4,11 @@ Suite de procesamiento y visualización de imágenes satelitales GeoTIFF para LA
 
 ## Descripción
 
-LANOT_tools proporciona cuatro módulos integrados para el procesamiento de datos satelitales:
+LANOT_tools proporciona módulos integrados para el procesamiento de datos satelitales:
 
 - **geotiff2view.py** - Convierte GeoTIFF a imágenes visualizables (PNG/JPEG) con paletas de color (CPT), composiciones RGB y transparencia NoData. Usa MapDrawer internamente para capas, logos y leyendas cuando se solicitan
-- **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas y timestamps sobre imágenes con soporte para proyecciones GOES/EPSG
+- **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas, timestamps y datos GLM sobre imágenes con soporte para proyecciones GOES/EPSG
+- **glm_renderer.py** - Renderizador de datos del GLM (Geostationary Lightning Mapper). Genera capas RGBA de densidad de rayos a partir de archivos NetCDF GLM, usable como módulo desde `mapdrawer` o de forma standalone
 - **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos
 - **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación
 
@@ -87,6 +88,8 @@ mapdrawer imagen.png --metadata metadata.json \
 | `--cpt FILE` | CPT para generar barra de color |
 | `--legend-pos N` | Posición de la barra de color (0-3) |
 | `--scale S` | Redimensionar imagen antes de dibujar |
+| `--glm FILE [FILE ...]` | Archivos NetCDF GLM a sobreponer (densidad de rayos) |
+| `--glm-color COLOR` | Color base de rayos GLM: `yellow` (default), `magenta`, `white` |
 | `--verbose` | Mensajes de depuración |
 
 ### Opciones útiles de geotiff2view
@@ -139,6 +142,20 @@ mapper.draw_fecha(metadata.get('timestamp'), position=0)
 img.save("output.png")
 ```
 
+```python
+# Overlay de rayos GLM sobre imagen ABI
+from glm_renderer import render_glm_layer
+from PIL import Image
+
+# metadata ya tiene 'crs', 'bounds' e 'image_size'
+metadata['image_size'] = (img.width, img.height)
+glm_layer = render_glm_layer(glm_files, metadata, base_color=(255, 255, 0))
+if glm_layer:
+    img = Image.alpha_composite(img.convert('RGBA'), glm_layer)
+    # metadata ahora contiene 'glm_time_start' y 'glm_time_end'
+    print(metadata.format_timestamp_glm())
+```
+
 ## Características principales
 
 - **Proyecciones satelitales**: GOES-16/17/18/19, EPSG y Proj4 strings via pyproj
@@ -146,6 +163,8 @@ img.save("output.png")
 - **Manejo de NoData**: Transparencia automática y máscaras en composiciones RGB
 - **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
 - **Grillas lat/lon**: Gratículas con intervalos configurables y etiquetas direccionales N/S/E/W
+- **Overlay GLM**: Densidad de rayos del GLM (histograma 2D vectorizado) con color y opacidad configurables
+- **Timestamp unificado ABI/GLM**: Cadena automática con rango temporal del GLM (`format_timestamp_glm()`)
 - **Metadata flexible**: Extracción automática de GeoTIFF o JSON sidecar
 - **Regiones predefinidas**: `conus`, `fulldisk` y cualquier región definida en `docs/recortes_coordenadas.csv` de la instalación
 
@@ -181,14 +200,23 @@ Después de la instalación se crean:
 
 - **`crea_vistas_viirs.sh`** — Procesamiento automático de productos VIIRS recientes (CLAVRX, ACSPO, Fire). Busca archivos `.tif` modificados en la última hora, aplica la paleta correcta para cada producto y genera imágenes JPEG con overlays de capas y logo.
 
+- **`GLMconus_png.sh`** — Renderiza los 15 archivos GLM más recientes sobre el CONUS ABI C13. Pipeline:
+  1. Genera imagen base con `hpsv gray` (GeoTIFF georreferenciado).
+  2. Superpone la densidad de rayos GLM en amarillo vía `mapdrawer --glm`.
+  3. Añade costas, estados, logo LANOT y fecha unificada ABI/GLM automáticamente.
+
+  Reemplaza el flujo anterior basado en `l1bIR2tifsp.py` + `gdal_rasterize` + `tifglm2png.py`.
+
 ## Estructura del proyecto
 
 ```
 LANOT_tools/
 ├── geotiff2view.py           # CLI: GeoTIFF → imagen
-├── mapdrawer.py             # CLI: overlays sobre imágenes
+├── mapdrawer.py             # CLI: overlays sobre imágenes (incluye GLM)
+├── glm_renderer.py          # Módulo/CLI: renderizado de datos GLM
 ├── colorpalettetable.py     # Manejo de paletas CPT
 ├── metadata.py              # Contenedor de metadata
+├── GLMconus_png.sh          # Pipeline GLM CONUS (ABI C13 + rayos)
 ├── crea_vistas_viirs.sh     # Procesamiento por lote de productos VIIRS
 ├── *.cpt                    # Paletas de color incluidas
 ├── setup.py                 # Configuración pip

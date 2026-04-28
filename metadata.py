@@ -384,3 +384,71 @@ class Metadata:
             if val:
                 parts.append(val)
         return " ".join(parts)
+
+    def _parse_ts(self, ts_str, fmt="%Y/%m/%d %H:%MZ"):
+        """Normaliza un timestamp almacenado al formato de display solicitado."""
+        for parse_fmt in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%dT%H:%M:%SZ",
+                          "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%MZ"):
+            try:
+                return datetime.strptime(ts_str, parse_fmt).strftime(fmt)
+            except ValueError:
+                continue
+        return ts_str
+
+    def format_timestamp_glm(self, fmt="%Y/%m/%d %H:%MZ", time_fmt="%H:%MZ"):
+        """
+        Produce una cadena unificada ABI/GLM para uso como título de imagen.
+
+        Si existen 'glm_time_start' y 'glm_time_end' en los metadatos, combina
+        la hora del ABI con el rango temporal del GLM en una sola línea:
+            GOES-18  ABI C13 / GLM  2026/04/28 19:15Z – 19:30Z
+
+        Si no hay datos GLM disponibles, delega en format_timestamp().
+
+        Args:
+            fmt (str): Formato para la fecha completa del ABI.
+            time_fmt (str): Formato para las horas del rango GLM (sólo hora).
+
+        Returns:
+            str or None: Cadena de display, o None si no hay información suficiente.
+        """
+        glm_start = self.get('glm_time_start')
+        glm_end = self.get('glm_time_end')
+
+        if not glm_start:
+            return self.format_timestamp(fmt=fmt, include_satellite=True,
+                                         include_product=True)
+
+        parts = []
+        if 'satellite' in self:
+            parts.append(self['satellite'])
+
+        # Añadir banda/producto ABI si está disponible
+        sensor_product = self.get('band') or self.get('product')
+        if sensor_product:
+            parts.append(f"ABI {sensor_product} / GLM")
+        else:
+            parts.append("ABI / GLM")
+
+        # Fecha base del ABI
+        if 'timestamp' in self:
+            abi_date = self._parse_ts(self['timestamp'], fmt=fmt)
+        else:
+            abi_date = None
+
+        # Rango horario GLM
+        t0_str = self._parse_ts(glm_start, fmt=time_fmt)
+        t1_str = self._parse_ts(glm_end, fmt=time_fmt)
+
+        if abi_date:
+            if t0_str != t1_str:
+                parts.append(f"{abi_date}  {t0_str} – {t1_str}")
+            else:
+                parts.append(abi_date)
+        elif t0_str != t1_str:
+            parts.append(f"{t0_str} – {t1_str}")
+        else:
+            parts.append(t0_str)
+
+        return "  ".join(parts)
+
