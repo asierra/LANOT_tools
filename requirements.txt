@@ -2,4 +2,6 @@ Pillow
 fiona
 pyproj
 numpy
+scipy
+netCDF4
 

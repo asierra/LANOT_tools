@@ -32,6 +32,12 @@ try:
 except ImportError:
     HAS_PYPROJ = False
 
+try:
+    from scipy.ndimage import gaussian_filter
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+
 # Proyecciones GOES predefinidas (mismas que mapdrawer)
 GOES_PROJECTIONS = {
     'goes16': '+proj=geos +h=35786023.0 +lon_0=-75.0 +sweep=x +a=6378137.0 +b=6356752.31414 +units=m +no_defs',
@@ -171,18 +177,31 @@ def render_glm_layer(glm_files, metadata, base_color=(255, 255, 0)):
     density = density.T      # Transponer: filas=Y, columnas=X
     density = np.flipud(density)  # Invertir Y: ymax queda en fila 0 (top de imagen)
 
-    # 4. Construir capa RGBA
+    # 4. Construir capa RGBA con efecto "glow" (estilo CIRA)
     rgba_array = np.zeros((img_height, img_width, 4), dtype=np.uint8)
-    mask = density > 0
 
-    r, g, b = base_color
-    rgba_array[mask, 0] = r
-    rgba_array[mask, 1] = g
-    rgba_array[mask, 2] = b
-
-    # Alpha proporcional a la densidad; núcleos con alta densidad → más opaco
-    alpha = np.clip(density[mask] * 40, 30, 250).astype(np.uint8)
-    rgba_array[mask, 3] = alpha
+    if HAS_SCIPY:
+        # Aplicar filtro Gaussiano para expandir puntos a manchas de luz.
+        # sigma controla el radio de la mancha (en píxeles).
+        smooth_density = gaussian_filter(density, sigma=2.0)
+        # Umbral para no pintar ruido de píxeles casi vacíos
+        mask = smooth_density > 0.15
+        r, g, b = base_color
+        rgba_array[mask, 0] = r
+        rgba_array[mask, 1] = g
+        rgba_array[mask, 2] = b
+        # Alpha proporcional a la densidad suavizada; núcleos densos → más opacos
+        alpha = np.clip(smooth_density[mask] * 80, 0, 255).astype(np.uint8)
+        rgba_array[mask, 3] = alpha
+    else:
+        # Fallback sin scipy: puntos simples con alpha mínimo visible
+        mask = density > 0
+        r, g, b = base_color
+        rgba_array[mask, 0] = r
+        rgba_array[mask, 1] = g
+        rgba_array[mask, 2] = b
+        alpha = np.clip(density[mask] * 40, 30, 250).astype(np.uint8)
+        rgba_array[mask, 3] = alpha
 
     return Image.fromarray(rgba_array, 'RGBA')
 

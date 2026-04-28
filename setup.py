@@ -13,6 +13,7 @@ setup(
         "numpy",
         "rasterio",
         "netCDF4",
+        "scipy",
     ],
     python_requires=">=3.8",
     entry_points={

@@ -59,8 +59,8 @@ mapdrawer base.tif \
     --glm-color yellow \
     --layer COASTLINE:white:1.0 \
     --layer MEXSTATES:white:0.5 \
-    --logo-pos 3 \
-    --timestamp-pos 2 \
+    --logo-pos 0 \
+    --timestamp-pos 3 \
     -o "$outfile.png"
 
 if [ $? -ne 0 ] || [ ! -f "$outfile.png" ]; then
