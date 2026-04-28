@@ -163,11 +163,13 @@ def render_glm_layer(glm_files, metadata, base_color=(255, 255, 0)):
         return None
 
     # 3. Histograma 2D: densidad de eventos por píxel
+    # numpy.histogram2d requiere bins monotónicamente crecientes
     x_bins = np.linspace(xmin, xmax, img_width + 1)
-    y_bins = np.linspace(ymax, ymin, img_height + 1)  # Y invertido (imagen)
+    y_bins = np.linspace(ymin, ymax, img_height + 1)
 
     density, _, _ = np.histogram2d(x_proj, y_proj, bins=[x_bins, y_bins])
-    density = density.T  # Transponer: filas=Y, columnas=X
+    density = density.T      # Transponer: filas=Y, columnas=X
+    density = np.flipud(density)  # Invertir Y: ymax queda en fila 0 (top de imagen)
 
     # 4. Construir capa RGBA
     rgba_array = np.zeros((img_height, img_width, 4), dtype=np.uint8)
