@@ -190,8 +190,9 @@ def render_glm_layer(glm_files, metadata, base_color=(255, 255, 0)):
         rgba_array[mask, 0] = r
         rgba_array[mask, 1] = g
         rgba_array[mask, 2] = b
-        # Alpha proporcional a la densidad suavizada; núcleos densos → más opacos
-        alpha = np.clip(smooth_density[mask] * 80, 0, 255).astype(np.uint8)
+        # Alpha logarítmico estilo CIRA: comprime picos extremos y topa en 200
+        # para que la textura de nubes sea siempre visible bajo el glow.
+        alpha = np.clip(np.log1p(smooth_density[mask]) * 60, 0, 200).astype(np.uint8)
         rgba_array[mask, 3] = alpha
     else:
         # Fallback sin scipy: puntos simples con alpha mínimo visible
