@@ -939,9 +939,9 @@ class MapDrawer:
 
         try:
             from glm_renderer import render_glm_layer
-        except ImportError:
-            print("Error: glm_renderer no encontrado. "
-                  "Asegúrate de que glm_renderer.py esté en el path.", file=sys.stderr)
+        except ImportError as e:
+            print(f"Error: no se pudo cargar glm_renderer ({e}). "
+                  "Asegúrate de que glm_renderer.py y sus dependencias (netCDF4) estén instaladas.", file=sys.stderr)
             return
 
         # Inyectar tamaño de imagen en metadata para que el renderer use

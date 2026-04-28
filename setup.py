@@ -12,6 +12,7 @@ setup(
         "pyproj",
         "numpy",
         "rasterio",
+        "netCDF4",
     ],
     python_requires=">=3.8",
     entry_points={
