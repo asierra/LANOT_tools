@@ -72,7 +72,10 @@ def render_ash_layer(ash_tif, metadata):
     None con un mensaje de error.
 
     Args:
-        ash_tif (str): Ruta al GeoTIFF de ceniza (4 bandas RGBA).
+        ash_tif (str): Ruta al GeoTIFF de ceniza. Puede ser:
+            - 1 banda uint8 con colormap embebido (formato nuevo de detect_ash.py);
+              el valor 0 (fondo) se trata siempre como transparente.
+            - 4 bandas RGBA (formato legacy; se eliminará en el futuro).
         metadata: Instancia de Metadata con 'crs', 'bounds' e 'image_size'.
 
     Returns:
@@ -98,11 +101,6 @@ def render_ash_layer(ash_tif, metadata):
 
     try:
         with rasterio.open(ash_tif) as src:
-            if src.count < 4:
-                print(f"Error: {ash_tif} debe tener 4 bandas RGBA (tiene {src.count}).",
-                      file=sys.stderr)
-                return None
-
             # --- Verificar compatibilidad de CRS ---
             base_crs_str = metadata.get('crs')
             ash_crs = src.crs
@@ -119,8 +117,34 @@ def render_ash_layer(ash_tif, metadata):
                     print("Advertencia: pyproj no disponible; no se pudo verificar CRS.",
                           file=sys.stderr)
 
-            # --- Leer las 4 bandas RGBA ---
-            r_band, g_band, b_band, a_band = src.read([1, 2, 3, 4])
+            # --- Leer datos según número de bandas ---
+            if src.count == 1:
+                # Formato nuevo: 1 banda uint8 con colormap embebido
+                band = src.read(1)
+                try:
+                    cmap = src.colormap(1)  # dict {index: (R, G, B, A)}
+                except Exception:
+                    cmap = {}
+                # Construir LUT 256×4 a partir del colormap
+                lut = np.zeros((256, 4), dtype=np.uint8)
+                for idx, rgba in cmap.items():
+                    if 0 <= idx < 256:
+                        lut[idx] = rgba
+                # El fondo (valor 0) siempre transparente, independientemente
+                # de lo que diga el colormap.
+                lut[0, 3] = 0
+                ash_rgba = lut[band]   # indexado fancy → (H, W, 4)
+            elif src.count >= 4:
+                # Formato legacy: 4 bandas RGBA (a eliminar en el futuro)
+                r_band, g_band, b_band, a_band = src.read([1, 2, 3, 4])
+                ash_rgba = np.stack(
+                    [r_band, g_band, b_band, a_band], axis=-1
+                ).astype(np.uint8)
+            else:
+                print(f"Error: {ash_tif} debe tener 1 banda (uint8+colormap) o "
+                      f">=4 bandas RGBA (tiene {src.count}).", file=sys.stderr)
+                return None
+
             ash_bounds = src.bounds
 
     except Exception as e:
@@ -151,7 +175,6 @@ def render_ash_layer(ash_tif, metadata):
         return None
 
     # --- Construir imagen RGBA del ash y escalar al espacio de la base ---
-    ash_rgba = np.stack([r_band, g_band, b_band, a_band], axis=-1).astype(np.uint8)
     ash_img  = Image.fromarray(ash_rgba, 'RGBA')
     ash_img  = ash_img.resize((ash_w_px, ash_h_px), Image.NEAREST)
 
@@ -190,6 +213,15 @@ if __name__ == '__main__':
     parser.add_argument("--legend-pos", type=int, choices=[0, 1, 2, 3],
                         metavar="POS",
                         help="Posición de la leyenda de ceniza (0=UL 1=UR 2=LL 3=LR).")
+    parser.add_argument("--timestamp",
+                        help="Texto de fecha/hora a mostrar (ej: '2026-01-30 12:00 UTC').")
+    parser.add_argument("--timestamp-pos", type=int, choices=[0, 1, 2, 3],
+                        metavar="POS",
+                        help="Posición del timestamp (0=UL 1=UR 2=LL 3=LR). "
+                             "Si se omite --timestamp, usa el del metadata.")
+    parser.add_argument("--font-color", default="white",
+                        metavar="COLOR",
+                        help="Color del texto del timestamp (default: white).")
     parser.add_argument("--scale", type=float, default=1.0,
                         metavar="FACTOR",
                         help="Factor de escala para la imagen de salida (default: 1.0).")
@@ -239,7 +271,9 @@ if __name__ == '__main__':
     result = Image.alpha_composite(base_img.convert('RGBA'), ash_layer).convert('RGB')
 
     # 3. MapDrawer: capas vectoriales y decoraciones
-    needs_mapper = args.layer or args.logo_pos is not None or args.legend_pos is not None
+    needs_mapper = (args.layer or args.logo_pos is not None or
+                     args.legend_pos is not None or args.timestamp_pos is not None or
+                     args.timestamp is not None)
     if needs_mapper:
         mapper = MapDrawer(target_crs=metadata.get('crs'))
         mapper.set_image(result)
@@ -276,6 +310,17 @@ if __name__ == '__main__':
         # Leyenda
         if args.legend_pos is not None:
             mapper.draw_legend(ASH_LEGEND_ITEMS, position=args.legend_pos)
+
+        # Timestamp
+        ts_text = args.timestamp or metadata.get('timestamp')
+        ts_pos  = args.timestamp_pos
+        if ts_text is not None and ts_pos is not None:
+            mapper.draw_fecha(ts_text, position=ts_pos, color=args.font_color)
+        elif ts_pos is not None:
+            # Sin texto ni metadata: usar fecha/hora actual UTC
+            from datetime import datetime, timezone
+            ts_text = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%MZ")
+            mapper.draw_fecha(ts_text, position=ts_pos, color=args.font_color)
 
         result = mapper.image
 

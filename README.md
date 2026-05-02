@@ -9,6 +9,7 @@ LANOT_tools proporciona módulos integrados para el procesamiento de datos satel
 - **geotiff2view.py** - Convierte GeoTIFF a imágenes visualizables (PNG/JPEG) con paletas de color (CPT), composiciones RGB y transparencia NoData. Usa MapDrawer internamente para capas, logos y leyendas cuando se solicitan
 - **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas, timestamps y datos GLM sobre imágenes con soporte para proyecciones GOES/EPSG
 - **glm_renderer.py** - Renderizador de datos del GLM (Geostationary Lightning Mapper). Genera capas RGBA de densidad de rayos a partir de archivos NetCDF GLM, usable como módulo desde `mapdrawer` o de forma standalone
+- **ash_view_generator.py** - Visualizador de detección de ceniza volcánica. Superpone el producto de ceniza (GeoTIFF uint8 con colormap generado por `detect_ash.py`) sobre una imagen base ABI, con capas vectoriales opcionales via MapDrawer
 - **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos
 - **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación
 
@@ -70,6 +71,18 @@ mapdrawer imagen.png --metadata metadata.json \
   -o output.png
 ```
 
+### Ceniza volcánica: GeoTIFF base + producto de ceniza
+
+```bash
+ash_view_generator.py base.tif ceniza.tif \
+  -o ash_output.png \
+  --layer MEXSTATES:white:1.0 \
+  --legend-pos 2 --logo-pos 3 \
+  --timestamp "2024-10-27 18:41 UTC" --timestamp-pos 1 --font-color yellow
+```
+
+El GeoTIFF de ceniza debe ser de **1 banda uint8 con colormap embebido** (formato generado por `detect_ash.py`). Debe estar en la misma proyección que la imagen base; si los CRS difieren el programa informa el error y termina.
+
 ### Opciones útiles de mapdrawer
 
 | Argumento | Descripción |
@@ -92,9 +105,23 @@ mapdrawer imagen.png --metadata metadata.json \
 | `--glm-color COLOR` | Color base de rayos GLM: `yellow` (default), `magenta`, `white` |
 | `--verbose` | Mensajes de depuración |
 
-### Opciones útiles de geotiff2view
+### Opciones útiles de ash_view_generator
 
 | Argumento | Descripción |
+|---|---|
+| `base_tif` | GeoTIFF base ABI (banda única, ej. C13-C15_*.tif) |
+| `ash_tif` | GeoTIFF de ceniza (1 banda uint8 + colormap, misma proyección) |
+| `-o FILE` | Archivo de salida PNG o GeoTIFF (default: `ash_output.png`) |
+| `--layer NOMBRE:COLOR:GROSOR` | Capa vectorial (`COASTLINE`, `COUNTRIES`, `MEXSTATES`) |
+| `--logo-pos N` | Posición del logo (0=UL, 1=UR, 2=LL, 3=LR) |
+| `--legend-pos N` | Posición de la leyenda de ceniza (0-3) |
+| `--timestamp TEXTO` | Texto de fecha/hora a mostrar |
+| `--timestamp-pos N` | Posición del timestamp (0-3); sin `--timestamp` usa el del metadata o UTC actual |
+| `--font-color C` | Color del texto del timestamp (default: `white`) |
+| `--scale S` | Factor de escala para la imagen de salida (default: 1.0) |
+| `--crs CRS` | Override del CRS (ej: `goes16`, `epsg:4326`) |
+
+### Opciones útiles de geotiff2view| Argumento | Descripción |
 |---|---|
 | `--cpt FILE` | Paleta de color CPT |
 | `--alpha` | Transparencia en valores NoData |
@@ -143,6 +170,17 @@ img.save("output.png")
 ```
 
 ```python
+# Overlay de ceniza volcánica sobre imagen ABI
+from ash_view_generator import render_ash_layer
+from PIL import Image
+
+# metadata ya tiene 'crs', 'bounds' e 'image_size'
+ash_layer = render_ash_layer('ceniza.tif', metadata)
+if ash_layer:
+    img = Image.alpha_composite(img.convert('RGBA'), ash_layer).convert('RGB')
+```
+
+```python
 # Overlay de rayos GLM sobre imagen ABI
 from glm_renderer import render_glm_layer
 from PIL import Image
@@ -164,6 +202,7 @@ if glm_layer:
 - **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
 - **Grillas lat/lon**: Gratículas con intervalos configurables y etiquetas direccionales N/S/E/W
 - **Overlay GLM**: Densidad de rayos del GLM (histograma 2D vectorizado) con color y opacidad configurables
+- **Overlay de ceniza**: Superposición georreferenciada de producto de detección de ceniza volcánica (uint8+colormap) con leyenda integrada
 - **Timestamp unificado ABI/GLM**: Cadena automática con rango temporal del GLM (`format_timestamp_glm()`)
 - **Metadata flexible**: Extracción automática de GeoTIFF o JSON sidecar
 - **Regiones predefinidas**: `conus`, `fulldisk` y cualquier región definida en `docs/recortes_coordenadas.csv` de la instalación
@@ -214,6 +253,7 @@ LANOT_tools/
 ├── geotiff2view.py           # CLI: GeoTIFF → imagen
 ├── mapdrawer.py             # CLI: overlays sobre imágenes (incluye GLM)
 ├── glm_renderer.py          # Módulo/CLI: renderizado de datos GLM
+├── ash_view_generator.py    # Módulo/CLI: visualización de ceniza volcánica
 ├── colorpalettetable.py     # Manejo de paletas CPT
 ├── metadata.py              # Contenedor de metadata
 ├── GLMconus_png.sh          # Pipeline GLM CONUS (ABI C13 + rayos)
