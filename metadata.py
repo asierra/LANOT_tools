@@ -154,12 +154,11 @@ class Metadata:
                 meta['band'] = tags[key]
                 break
         
-        # Extract product info if not a band
-        if 'band' not in meta:
-            for key in ['product', 'product_name', 'algorithm']:
-                if key in tags:
-                    meta['product'] = tags[key]
-                    break
+        # Extract product info
+        for key in ['product', 'product_name', 'algorithm']:
+            if key in tags:
+                meta['product'] = tags[key]
+                break
         
         return meta
     
@@ -313,8 +312,8 @@ class Metadata:
             if m:
                 self['band'] = m.group(1).upper()
 
-        # --- product (only if no band detected) ---
-        if not self.get('band') and 'product' not in self:
+        # --- product ---
+        if 'product' not in self:
             product_map = [
                 ('true_color',       'True Color'),
                 ('sst',              'SST'),
@@ -378,11 +377,11 @@ class Metadata:
             except ValueError:
                 continue
 
-        parts.append(ts)
         if include_product:
-            val = self.get('band') or self.get('product')
+            val = self.get('product') or self.get('band')
             if val:
                 parts.append(val)
+        parts.append(ts)
         return " ".join(parts)
 
     def _parse_ts(self, ts_str, fmt="%Y/%m/%d %H:%MZ"):
@@ -424,7 +423,7 @@ class Metadata:
             parts.append(self['satellite'])
 
         # Añadir banda/producto ABI si está disponible
-        sensor_product = self.get('band') or self.get('product')
+        sensor_product = self.get('product') or self.get('band')
         if sensor_product:
             parts.append(f"ABI {sensor_product} / GLM")
         else:
