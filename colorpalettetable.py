@@ -106,54 +106,9 @@ class ColorPaletteTable:
 
             # Procesar segmentos continuos si existen
             if self.segments:
-                self.min_val = min(s[0] for s in self.segments)
-                self.max_val = max(s[4] for s in self.segments)
-                
-                # Detectar si es normalizada (0-1)
-                if self.min_val >= 0 and self.max_val <= 1.0:
-                    self.is_normalized = True
-                    self.offset = 0
-                    self.scale_factor = 255.0
-                else:
-                    # Caso continuo físico (ej. Kelvin): Escalar al rango completo 0-255
-                    self.offset = self.min_val
-                    
-                    # Determinar espacio reservado para N y F
-                    has_n = 'N' in self.special or (use_b_for_n and 'B' in self.special) or force_n
-                    has_f = 'F' in self.special
-                    
-                    limit = 255
-                    if has_n: limit -= 1
-                    if has_f: limit -= 1
-                    
-                    # Calcular factor de escala para llenar el espacio disponible
-                    if self.max_val > self.min_val:
-                        self.scale_factor = float(limit) / (self.max_val - self.min_val)
-                    
-                # Generar paleta densa (0-255)
-                self.palette = [0] * 768
-                self.palette_size = 256
-                
-                # Rellenar gradiente
-                for i in range(256):
-                    # Calcular valor físico correspondiente a este índice
-                    val = self.min_val + (i / self.scale_factor) if self.scale_factor > 0 else self.min_val
-                    
-                    # Buscar segmento y interpolar
-                    r, g, b = 0, 0, 0
-                    for v1, r1, g1, b1, v2, r2, g2, b2 in self.segments:
-                        if v1 <= val <= v2:
-                            span = v2 - v1
-                            f = 0.0 if span == 0 else (val - v1) / span
-                            f = max(0.0, min(1.0, f))
-                            r = int(r1 + f * (r2 - r1))
-                            g = int(g1 + f * (g2 - g1))
-                            b = int(b1 + f * (b2 - b1))
-                            break
-                    
-                    self.palette[i*3] = r
-                    self.palette[i*3+1] = g
-                    self.palette[i*3+2] = b
+                has_n = 'N' in self.special or (use_b_for_n and 'B' in self.special) or force_n
+                has_f = 'F' in self.special
+                self._build_palette_from_segments(has_n=has_n, has_f=has_f)
             
             if not self.colors and not self.segments:
                 return
@@ -196,6 +151,110 @@ class ColorPaletteTable:
 
         except Exception as e:
             print(f"Error leyendo CPT: {e}", file=sys.stderr)
+
+    def _build_palette_from_segments(self, has_n=False, has_f=False):
+        """Genera self.palette (lista de 768 enteros RGB) a partir de self.segments."""
+        self.min_val = min(s[0] for s in self.segments)
+        self.max_val = max(s[4] for s in self.segments)
+
+        if self.min_val >= 0 and self.max_val <= 1.0:
+            self.is_normalized = True
+            self.offset = 0
+            self.scale_factor = 255.0
+        else:
+            self.offset = self.min_val
+            limit = 255
+            if has_n: limit -= 1
+            if has_f: limit -= 1
+            if self.max_val > self.min_val:
+                self.scale_factor = float(limit) / (self.max_val - self.min_val)
+
+        self.palette = [0] * 768
+        self.palette_size = 256
+
+        for i in range(256):
+            val = self.min_val + (i / self.scale_factor) if self.scale_factor > 0 else self.min_val
+            r, g, b = 0, 0, 0
+            for v1, r1, g1, b1, v2, r2, g2, b2 in self.segments:
+                if v1 <= val <= v2:
+                    span = v2 - v1
+                    f = 0.0 if span == 0 else (val - v1) / span
+                    f = max(0.0, min(1.0, f))
+                    r = int(r1 + f * (r2 - r1))
+                    g = int(g1 + f * (g2 - g1))
+                    b = int(b1 + f * (b2 - b1))
+                    break
+            self.palette[i*3] = r
+            self.palette[i*3+1] = g
+            self.palette[i*3+2] = b
+
+    @classmethod
+    def from_tiff_colormap(cls, colormap_str, tiff_offset=None, tiff_scale=None):
+        """Construye una instancia desde el tag 'colormap' de un GeoTIFF.
+
+        El formato del tag es una cadena multilínea con entradas 'val,r,g,b'.
+        Las líneas vienen en pares (val_alto→val_bajo) definiendo segmentos.
+        No requiere rasterio; solo recibe el string ya extraído.
+
+        Args:
+            colormap_str (str): Contenido del tag 'colormap' del TIFF.
+            tiff_offset (float, opcional): Tag 'offset' del TIFF (solo informativo).
+            tiff_scale (float, opcional): Tag 'scale' del TIFF (solo informativo).
+        """
+        obj = cls()  # instancia vacía sin cargar archivo
+        rows = []
+        for line in colormap_str.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(',')
+            if len(parts) < 4:
+                continue
+            try:
+                val = float(parts[0])
+                r = int(float(parts[1]))
+                g = int(float(parts[2]))
+                b = int(float(parts[3]))
+                rows.append((val, r, g, b))
+            except ValueError:
+                continue
+
+        # Detectar si la paleta es continua o discreta inspeccionando las fronteras entre pares.
+        # Si el valor final de un par coincide exactamente con el valor inicial del siguiente,
+        # hay una frontera compartida → paleta continua (puntos de control con gradiente).
+        # Si hay una brecha numérica (como 0.5000 → 0.5001), cada par es un bloque plano → discreta.
+        is_continuous = False
+        if len(rows) >= 4:
+            # Comprobar la primera frontera entre el par 0-1 y el par 2-3
+            is_continuous = math.isclose(rows[1][0], rows[2][0], rel_tol=1e-6)
+
+        obj.segments = []
+        if is_continuous:
+            # Paleta continua: un punto de control por par (el cabezal), más el último valor.
+            control = list(rows[::2])
+            if len(rows) % 2 == 0 and rows[-1] != control[-1]:
+                control.append(rows[-1])
+            for i in range(len(control) - 1):
+                va, ra, ga, ba = control[i]
+                vb, rb, gb, bb = control[i + 1]
+                if va < vb:
+                    obj.segments.append((va, ra, ga, ba, vb, rb, gb, bb))
+                else:
+                    obj.segments.append((vb, rb, gb, bb, va, ra, ga, ba))
+        else:
+            # Paleta discreta: cada par de filas es un segmento plano de un solo color.
+            for i in range(0, len(rows) - 1, 2):
+                va, ra, ga, ba = rows[i]
+                vb, rb, gb, bb = rows[i + 1]
+                if va < vb:
+                    obj.segments.append((va, ra, ga, ba, vb, rb, gb, bb))
+                else:
+                    obj.segments.append((vb, rb, gb, bb, va, ra, ga, ba))
+
+        if obj.segments:
+            obj._build_palette_from_segments(has_n=False, has_f=False)
+
+        return obj
 
     def get_pil_palette(self):
         """Devuelve la lista de 768 enteros que requiere PIL."""

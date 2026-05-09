@@ -10,8 +10,8 @@ LANOT_tools proporciona módulos integrados para el procesamiento de datos satel
 - **mapdrawer.py** - Sistema de superposición de capas vectoriales, logos, leyendas, timestamps y datos GLM sobre imágenes con soporte para proyecciones GOES/EPSG
 - **glm_renderer.py** - Renderizador de datos del GLM (Geostationary Lightning Mapper). Genera capas RGBA de densidad de rayos a partir de archivos NetCDF GLM, usable como módulo desde `mapdrawer` o de forma standalone
 - **ash_view_generator.py** - Visualizador de detección de ceniza volcánica. Superpone el producto de ceniza (GeoTIFF uint8 con colormap generado por `detect_ash.py`) sobre una imagen base ABI, con capas vectoriales opcionales via MapDrawer
-- **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos
-- **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación
+- **colorpalettetable.py** - Manejo de paletas GMT-style CPT con gradientes continuos y discretos. Puede construir paletas desde archivos CPT o desde el tag `colormap` embebido en GeoTIFFs generados por CSPP VIIRS ATMOS
+- **metadata.py** - Contenedor dict-like para gestión de metadatos GeoTIFF con helpers de transformación. Detecta producto y unidades físicas (K, m) a partir del nombre del archivo
 
 ## Instalación
 
@@ -61,6 +61,34 @@ mapdrawer imagen.png \
   --layer COASTLINE:yellow:1.0 -o con_grilla.png
 ```
 
+### Post-procesamiento de imágenes CSPP VIIRS ATMOS
+
+Los GeoTIFFs generados por CSPP VIIRS ATMOS (ej. `noaa20_viirs_CldTopTemp_*.tif`) ya incluyen su propia paleta en el tag `colormap` de los metadatos. Se pueden decorar directamente con `mapdrawer` sin necesidad de un archivo CPT externo:
+
+```bash
+# Temperatura cloud-top: barra de color automática desde el colormap del TIFF
+mapdrawer noaa20_viirs_CldTopTemp_20260508_192713_wgs84_fit.tif \
+  --colorbar \
+  --layer COASTLINE:white:1.0 --layer MEXSTATES:yellow:0.5 \
+  --timestamp-pos 2 --logo-pos 3 \
+  -o CldTopTemp_20260508_1927.png
+
+# Fase de nubes: paleta discreta (rectángulos por categoría)
+mapdrawer noaa20_viirs_CloudPhase_20260508_192713_wgs84_fit.tif \
+  --colorbar \
+  --layer COASTLINE:white:1.0 \
+  --timestamp-pos 2 --logo-pos 3 \
+  -o CloudPhase_20260508_1927.png
+
+# TIFF sin colormap embebido: usar --cpt como fuente de la barra
+mapdrawer noaa20_viirs_SST_20260508_192713_wgs84_fit.tif \
+  --colorbar --cpt sst.cpt \
+  --layer COASTLINE:white:1.0 \
+  --timestamp-pos 2 -o SST_20260508_1927.png
+```
+
+El campo **unidades** (K, m, etc.) se detecta automáticamente del nombre del archivo y aparece al final de la barra de valores.
+
 ### Post-procesamiento de imágenes existentes
 
 ```bash
@@ -98,8 +126,9 @@ El GeoTIFF de ceniza debe ser de **1 banda uint8 con colormap embebido** (format
 | `--timestamp-pos N` | Posición del timestamp (0-3); sin `--timestamp` usa fecha actual |
 | `--font-size S` | Tamaño de fuente (px o porcentaje) |
 | `--font-color C` | Color del texto |
-| `--cpt FILE` | CPT para generar barra de color |
-| `--legend-pos N` | Posición de la barra de color (0-3) |
+| `--cpt FILE` | CPT para leyenda categórica (recuadros de color) o fuente de colorbar con `--colorbar` |
+| `--colorbar` | Dibuja barra de colores continua. Usa el `colormap` embebido en el TIFF como primera opción, o `--cpt` como fallback |
+| `--legend-pos N` | Posición de la leyenda categórica CPT (0-3) |
 | `--scale S` | Redimensionar imagen antes de dibujar |
 | `--glm FILE [FILE ...]` | Archivos NetCDF GLM a sobreponer (densidad de rayos) |
 | `--glm-color COLOR` | Color base de rayos GLM: `yellow` (default), `magenta`, `white` |
@@ -197,7 +226,8 @@ if glm_layer:
 ## Características principales
 
 - **Proyecciones satelitales**: GOES-16/17/18/19, EPSG y Proj4 strings via pyproj
-- **Paletas de color**: CPT continuos y discretos con soporte para valores especiales (NoData, background, foreground)
+- **Paletas de color**: CPT continuos y discretos, y colormaps embebidos en GeoTIFFs CSPP VIIRS ATMOS, con soporte para valores especiales (NoData, background, foreground)
+- **Detección automática de producto y unidades**: a partir del nombre del archivo (`CldTopTemp` → `K`, `CldTopHght` → `m`)
 - **Manejo de NoData**: Transparencia automática y máscaras en composiciones RGB
 - **Capas vectoriales**: GeoPackage/Shapefile (costa, países, estados) con clipping inteligente
 - **Grillas lat/lon**: Gratículas con intervalos configurables y etiquetas direccionales N/S/E/W

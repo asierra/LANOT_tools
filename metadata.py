@@ -312,30 +312,38 @@ class Metadata:
             if m:
                 self['band'] = m.group(1).upper()
 
-        # --- product ---
+        # --- product + units ---
+        # Each entry: (token, label, units_or_None)
         if 'product' not in self:
             product_map = [
-                ('true_color',       'True Color'),
-                ('sst',              'SST'),
-                ('cloud_phase',      'Cloud Phase'),
-                ('cloud_type',       'Cloud Type'),
-                ('cld_temp_acha',    'Cloud Top Temp'),
-                ('cld_height_acha',  'Cloud Top Height'),
-                ('cld_emiss_acha',   'Cloud Emissivity'),
-                ('flood',            'Flood'),
-                ('water',            'Flood'),
-                ('fire',             'Fire'),
-                ('dnb',              'DNB'),
+                ('true_color',       'True Color',        None),
+                ('sst',              'SST',               'K'),
+                ('cldtoptemp',       'Cloud Top Temp',    'K'),
+                ('cld_temp_acha',    'Cloud Top Temp',    'K'),
+                ('cldtophght',       'Cloud Top Height',  'm'),
+                ('cld_height_acha',  'Cloud Top Height',  'm'),
+                ('cloudphase',       'Cloud Phase',       None),
+                ('cloud_phase',      'Cloud Phase',       None),
+                ('cloud_type',       'Cloud Type',        None),
+                ('cld_emiss_acha',   'Cloud Emissivity',  None),
+                ('flood',            'Flood',             None),
+                ('water',            'Flood',             None),
+                ('fire',             'Fire',              None),
+                ('dnb',              'DNB',               None),
             ]
             # Priority: basename first, then full path (directory) as fallback
-            for token, label in product_map:
+            for token, label, units in product_map:
                 if token in lower:
                     self['product'] = label
+                    if units and 'units' not in self:
+                        self['units'] = units
                     break
             if 'product' not in self:
-                for token, label in product_map:
+                for token, label, units in product_map:
                     if token in lower_full:
                         self['product'] = label
+                        if units and 'units' not in self:
+                            self['units'] = units
                         break
 
         return self

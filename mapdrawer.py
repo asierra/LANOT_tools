@@ -22,6 +22,12 @@ import numpy as np
 
 from metadata import Metadata
 
+try:
+    from colorpalettetable import ColorPaletteTable
+    HAS_CPT = True
+except ImportError:
+    HAS_CPT = False
+
 # Desactivar límite de píxeles para imágenes satelitales grandes
 Image.MAX_IMAGE_PIXELS = None
 
@@ -1074,6 +1080,9 @@ def main():
 
     # Leyenda
     parser.add_argument("--cpt", help="Archivo CPT para generar leyenda")
+    parser.add_argument("--colorbar", action="store_true",
+                        help="Dibujar barra de colores continua. Usa el colormap embebido en el "
+                             "TIFF o, como fallback, el archivo --cpt.")
     parser.add_argument(
         "--metadata",  "-m", help="Archivo JSON con metadatos (CRS, bounds, timestamp) para imágenes sin georreferencia.")
     parser.add_argument("--legend-pos", type=int,
@@ -1340,19 +1349,56 @@ def main():
         mapper.draw_fecha(ts, position=pos, fontsize=font_size,
                           color=args.font_color)
 
-    # 8. Leyenda
-    if args.cpt and args.legend_pos is not None:
+    # 8. Leyenda categórica (--cpt --legend-pos, sin --colorbar)
+    if args.cpt and args.legend_pos is not None and not args.colorbar:
         items = mapper.parse_cpt(args.cpt)
         if items:
-            # Si hay fecha en la misma posición, desplazar leyenda
-            # Ajustar offset vertical basado en el tamaño de fuente
             v_offset = 0
             if pos is not None and pos == args.legend_pos:
                 v_offset = int(font_size * 2.5)
             mapper.draw_legend(items, position=args.legend_pos,
                                fontsize=font_size, vertical_offset=v_offset)
 
-    # 9. Guardar
+    # 9. Barra de colores continua (--colorbar)
+    if args.colorbar:
+        cpt_obj = None
+        if HAS_CPT:
+            # Prioridad 1: colormap embebido en el TIFF
+            if HAS_RASTERIO:
+                try:
+                    with rasterio.open(args.input_image) as src:
+                        tags = src.tags()
+                        if 'colormap' in tags:
+                            tiff_offset = float(tags.get('offset', 0))
+                            tiff_scale = float(tags.get('scale', 1.0))
+                            cpt_obj = ColorPaletteTable.from_tiff_colormap(
+                                tags['colormap'], tiff_offset=tiff_offset, tiff_scale=tiff_scale)
+                            debug_msg("Colorbar: usando colormap embebido en el TIFF.")
+                except Exception as e:
+                    debug_msg(f"No se pudo leer colormap del TIFF: {e}")
+            # Prioridad 2: --cpt externo
+            if cpt_obj is None and args.cpt:
+                try:
+                    cpt_obj = ColorPaletteTable(args.cpt)
+                    debug_msg(f"Colorbar: usando paleta externa {args.cpt}.")
+                except Exception as e:
+                    debug_msg(f"No se pudo cargar CPT {args.cpt}: {e}")
+            if cpt_obj is None:
+                print("Advertencia: --colorbar requiere colormap en el TIFF o --cpt. Se omite.", file=sys.stderr)
+        else:
+            print("Advertencia: colorpalettetable no disponible. Se omite --colorbar.", file=sys.stderr)
+
+        if cpt_obj is not None and cpt_obj.palette:
+            # Propagar unidades desde metadatos si el CPT no las tiene
+            if not cpt_obj.units and metadata.get('units'):
+                cpt_obj.units = metadata['units']
+            if mapper.image:
+                img = mapper.image
+            barsz = img.height // 20
+            cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height - 2 * barsz,
+                                img.width, barsz, font_size=barsz // 2)
+
+    # 10. Guardar
     # Recuperar la imagen del mapper por si hubo recorte (crop genera nueva instancia)
     if mapper.image:
         img = mapper.image

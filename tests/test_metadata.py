@@ -166,8 +166,31 @@ class TestEnrichFromFilename:
         m.enrich_from_filename('npp_viirs_sst_20260127_185932.tif')
         assert m['satellite'] == 'Custom'  # no sobreescrito
 
+    def test_cldtoptemp_product_and_units(self):
+        m = Metadata()
+        m.enrich_from_filename('noaa20_viirs_CldTopTemp_20260508_192713_wgs84_fit.tif')
+        assert m.get('product') == 'Cloud Top Temp'
+        assert m.get('units') == 'K'
 
-# ---------------------------------------------------------------------------
+    def test_cldtophght_product_and_units(self):
+        m = Metadata()
+        m.enrich_from_filename('noaa20_viirs_CldTopHght_20260508_192713_wgs84_fit.tif')
+        assert m.get('product') == 'Cloud Top Height'
+        assert m.get('units') == 'm'
+
+    def test_cloudphase_product_no_units(self):
+        m = Metadata()
+        m.enrich_from_filename('noaa20_viirs_CloudPhase_20260508_192713_wgs84_fit.tif')
+        assert m.get('product') == 'Cloud Phase'
+        assert m.get('units') is None
+
+    def test_cld_temp_acha_product_and_units(self):
+        m = Metadata()
+        m.enrich_from_filename('npp_viirs_cld_temp_acha_20260127_074806_wgs84_geo_750m.tif')
+        assert m.get('product') == 'Cloud Top Temp'
+        assert m.get('units') == 'K'
+
+
 # format_timestamp
 # ---------------------------------------------------------------------------
 

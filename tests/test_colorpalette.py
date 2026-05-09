@@ -149,3 +149,67 @@ class TestApplyToData:
         result = cpt.apply_to_data(data)
         assert result.min() >= 0
         assert result.max() <= 255
+
+
+# ---------------------------------------------------------------------------
+# from_tiff_colormap
+# ---------------------------------------------------------------------------
+
+COLORMAP_CONTINUO = """\
+300.000000,127,0,127
+293.333344,127,0,127
+293.333344,150,75,20
+286.666656,150,75,20
+286.666656,255,171,127
+280.000000,255,171,127
+280.000000,255,127,0
+273.333344,255,127,0
+"""
+
+COLORMAP_DISCRETO = """\
+-0.500000,0,0,0
+0.500000,0,0,0
+0.500100,2,188,252
+1.500000,2,188,252
+1.500100,1,251,0
+2.500000,1,251,0
+"""
+
+
+class TestFromTiffColormap:
+    def test_continuous_palette_length(self):
+        cpt = ColorPaletteTable.from_tiff_colormap(COLORMAP_CONTINUO)
+        assert cpt.palette is not None
+        assert len(cpt.palette) == 768
+
+    def test_continuous_range(self):
+        cpt = ColorPaletteTable.from_tiff_colormap(COLORMAP_CONTINUO)
+        assert cpt.min_val == pytest.approx(273.333344, abs=0.01)
+        assert cpt.max_val == pytest.approx(300.0, abs=0.01)
+
+    def test_continuous_gradient(self):
+        """Los extremos deben tener colores diferentes (hay gradiente real)."""
+        cpt = ColorPaletteTable.from_tiff_colormap(COLORMAP_CONTINUO)
+        color_min = tuple(cpt.palette[0:3])
+        color_max = tuple(cpt.palette[253*3:253*3+3])
+        assert color_min != color_max
+
+    def test_discrete_palette_length(self):
+        cpt = ColorPaletteTable.from_tiff_colormap(COLORMAP_DISCRETO)
+        assert cpt.palette is not None
+        assert len(cpt.palette) == 768
+
+    def test_discrete_flat_blocks(self):
+        """En paleta discreta cada segmento debe ser plano (mismo color en ambos extremos)."""
+        cpt = ColorPaletteTable.from_tiff_colormap(COLORMAP_DISCRETO)
+        # El segmento 1 corresponde a clase 1 (color 2,188,252)
+        # El pixel al inicio y al final del bloque deben ser idénticos
+        for seg in cpt.segments:
+            v1, r1, g1, b1, v2, r2, g2, b2 = seg
+            assert (r1, g1, b1) == (r2, g2, b2), f"Segmento {v1}-{v2} no es plano"
+
+    def test_palette_values_in_range(self):
+        for colormap in (COLORMAP_CONTINUO, COLORMAP_DISCRETO):
+            cpt = ColorPaletteTable.from_tiff_colormap(colormap)
+            assert min(cpt.palette) >= 0
+            assert max(cpt.palette) <= 255
