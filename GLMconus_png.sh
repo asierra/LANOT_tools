@@ -8,7 +8,7 @@
 
 indirabi=/data1/input/abi/l1b/conus
 indirglm=/data1/input/glm
-outdir=/data/goes16/glm/vistas/conus
+outdir=/data/goes19/glm/vistas/conus
 workingdir=/var/tmp/conusglm
 
 if [ ! -d "$workingdir" ]; then
@@ -19,7 +19,7 @@ fi
 cd "$workingdir"
 
 # --- Buscar el ABI C13 más reciente ---
-fileabi=$(ls -t "$indirabi"/*C13*.nc 2>/dev/null | head -1)
+fileabi=$(find "$indirabi" -maxdepth 1 -name "*C13*.nc" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
 if [ -z "$fileabi" ]; then
     echo "Error: No se encontró archivo ABI C13 en $indirabi" >&2
     exit 1
@@ -29,7 +29,7 @@ fi
 basename_abi=$(basename "$fileabi" .nc)
 
 # --- Consultar los 15 GLMs más recientes ---
-mapfile -t glm_files < <(ls -t "$indirglm"/*.nc 2>/dev/null | head -15)
+mapfile -t glm_files < <(find "$indirglm" -maxdepth 1 -name "*.nc" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -15 | cut -d' ' -f2-)
 if [ ${#glm_files[@]} -eq 0 ]; then
     echo "Error: No se encontraron archivos GLM en $indirglm" >&2
     exit 1
@@ -47,7 +47,7 @@ echo "Procesando ABI: $basename_abi"
 echo "GLMs: ${#glm_files[@]} archivos"
 
 # --- 1. Imagen base ABI C13 en escala de grises (GeoTIFF georreferenciado) ---
-hpsv gray -i "$fileabi" -t -o base.tif
+hpsv gray -i "$fileabi" -t -g 1.5 -o base.tif
 if [ $? -ne 0 ] || [ ! -f base.tif ]; then
     echo "Error: hpsv no generó base.tif" >&2
     exit 1
@@ -73,5 +73,4 @@ mv "$outfile.png" "$outdir/"
 echo "Guardado: $outdir/$outfile.png"
 
 # Limpiar directorio de trabajo
-rm -f base.tif
-
+#rm -f base.tif
