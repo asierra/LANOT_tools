@@ -1119,7 +1119,8 @@ def main():
     # Intentar extraer metadatos si es GeoTIFF y rasterio está disponible
     metadata = Metadata()
 
-    if HAS_RASTERIO:
+    _input_ext = os.path.splitext(args.input_image)[1].lower()
+    if HAS_RASTERIO and _input_ext in ('.tif', '.tiff'):
         debug_msg(
             f"Intentando leer metadatos con rasterio de {args.input_image}")
         try:
