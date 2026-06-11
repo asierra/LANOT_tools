@@ -1292,7 +1292,8 @@ def main():
             parts = layer_def.split(':')
             name = parts[0]
             color = parts[1] if len(parts) > 1 else 'yellow'
-            width = float(parts[2]) if len(parts) > 2 else 0.5
+            width_arg = parts[2] if len(parts) > 2 else "0.5"
+            width = calculate_size(width_arg, img_width, 1)
             
             # Detectar si la capa solicitada es una grilla
             if name.startswith('grid'):
@@ -1301,7 +1302,8 @@ def main():
                     interval = int(name.replace('grid', ''))
                 except ValueError:
                     interval = 10  # Valor por defecto si solo ponen 'grid'
-                
+
+                width = calculate_size(width_arg, img_width, 1)
                 # Verificar si se pidieron etiquetas (cuarto parámetro)
                 labels = False
                 if len(parts) > 3 and parts[3].lower() in ('labels', 'label', 'l'):
