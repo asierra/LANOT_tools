@@ -78,8 +78,8 @@ for filepath in "${FILES[@]}"; do
 
     # Definir argumentos
     args=(
-        --layer "COUNTRIES:yellow:0.5"
-        --layer "MEXSTATES:yellow:0.5"
+        --layer "COUNTRIES:yellow:0.0005"
+        --layer "MEXSTATES:yellow:0.0005"
         --logo-pos 0
         --logo-size 0.2
         --font-size 0.025
