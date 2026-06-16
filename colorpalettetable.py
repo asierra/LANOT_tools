@@ -256,6 +256,36 @@ class ColorPaletteTable:
 
         return obj
 
+    @classmethod
+    def from_rasterio_colormap(cls, rasterio_cm):
+        """Construye una instancia desde un colormap nativo de rasterio.
+
+        Args:
+            rasterio_cm (dict): Resultado de src.colormap(band), con formato
+                                {pixel_index: (r, g, b, a)}.
+        """
+        obj = cls()
+        if not rasterio_cm:
+            return obj
+
+        palette = [0] * 768
+        for idx, rgba in rasterio_cm.items():
+            if 0 <= idx < 256:
+                palette[idx * 3]     = rgba[0]
+                palette[idx * 3 + 1] = rgba[1]
+                palette[idx * 3 + 2] = rgba[2]
+
+        obj.palette = palette
+        obj.offset = 0
+        obj.scale_factor = 1.0
+
+        valid_keys = [k for k in rasterio_cm if 0 <= k < 256]
+        if valid_keys:
+            obj.min_val = min(valid_keys)
+            obj.max_val = max(valid_keys)
+
+        return obj
+
     def get_pil_palette(self):
         """Devuelve la lista de 768 enteros que requiere PIL."""
         return self.palette

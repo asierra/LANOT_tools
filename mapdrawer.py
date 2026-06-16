@@ -1083,8 +1083,9 @@ def main():
     parser.add_argument("--colorbar", action="store_true",
                         help="Dibujar barra de colores continua. Usa el colormap embebido en el "
                              "TIFF o, como fallback, el archivo --cpt.")
-    parser.add_argument("--colorbar-text-pos", choices=['below', 'middle', 'above'], default='below',
-                        help="Posición del texto en la barra de colores (default: below)")
+    parser.add_argument("--colorbar-text-pos", choices=['below', 'middle', 'above'], default=None,
+                        help="Posición del texto en la barra de colores (below/middle/above, default: below). "
+                             "Implica --colorbar si no se especifica.")
     parser.add_argument(
         "--metadata",  "-m", help="Archivo JSON con metadatos (CRS, bounds, timestamp) para imágenes sin georreferencia.")
     parser.add_argument("--legend-pos", type=int,
@@ -1354,6 +1355,12 @@ def main():
         mapper.draw_fecha(ts, position=pos, fontsize=font_size,
                           color=args.font_color)
 
+    # --colorbar-text-pos implica --colorbar; normalizar default
+    if args.colorbar_text_pos is not None:
+        args.colorbar = True
+    else:
+        args.colorbar_text_pos = 'below'
+
     # 8. Leyenda categórica (--cpt --legend-pos, sin --colorbar)
     if args.cpt and args.legend_pos is not None and not args.colorbar:
         items = mapper.parse_cpt(args.cpt)
@@ -1378,7 +1385,15 @@ def main():
                             tiff_scale = float(tags.get('scale', 1.0))
                             cpt_obj = ColorPaletteTable.from_tiff_colormap(
                                 tags['colormap'], tiff_offset=tiff_offset, tiff_scale=tiff_scale)
-                            debug_msg("Colorbar: usando colormap embebido en el TIFF.")
+                            debug_msg("Colorbar: usando colormap de tag de texto del TIFF.")
+                        else:
+                            try:
+                                rasterio_cm = src.colormap(1)
+                                if rasterio_cm:
+                                    cpt_obj = ColorPaletteTable.from_rasterio_colormap(rasterio_cm)
+                                    debug_msg("Colorbar: usando colormap nativo del TIFF.")
+                            except Exception:
+                                pass
                 except Exception as e:
                     debug_msg(f"No se pudo leer colormap del TIFF: {e}")
             # Prioridad 2: --cpt externo
