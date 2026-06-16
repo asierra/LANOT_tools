@@ -271,8 +271,11 @@ class ColorPaletteTable:
         scaled = np.clip((data - self.offset) * self.scale_factor, 0, upper_limit).astype(np.uint8)
         return scaled
 
-    def draw_legend(self, draw, x, y, width, height, font_size=12, color='white'):
-        """Dibuja la barra de colores y las etiquetas."""
+    def draw_legend(self, draw, x, y, width, height, font_size=12, color='white', text_pos='below'):
+        """Dibuja la barra de colores y las etiquetas.
+
+        text_pos: 'below' (default), 'middle', 'above'
+        """
         if not self.palette:
             return
 
@@ -280,11 +283,15 @@ class ColorPaletteTable:
         min_idx = int((self.min_val - self.offset) * self.scale_factor)
         max_idx = int((self.max_val - self.offset) * self.scale_factor)
         self._draw_colorbar(draw, x, y, width, height, min_index=min_idx, max_index=max_idx)
-        
-        # Dibujar etiquetas o valores
-        text_y = y + height
-        text_color = self.f_idx if self.f_idx is not None else 255 # Usar un color visible (blanco/foreground)
-        
+
+        # Calcular posición vertical del texto según text_pos
+        if text_pos == 'above':
+            text_y = y - font_size
+        elif text_pos == 'middle':
+            text_y = y + (height - font_size) // 2
+        else:  # 'below'
+            text_y = y + height
+
         if self.labels:
             self._draw_label_row(draw, x, text_y, width, self.min_val, self.max_val, self.offset, self.labels, color, font_size)
         else:

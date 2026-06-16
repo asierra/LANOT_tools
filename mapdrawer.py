@@ -1083,6 +1083,8 @@ def main():
     parser.add_argument("--colorbar", action="store_true",
                         help="Dibujar barra de colores continua. Usa el colormap embebido en el "
                              "TIFF o, como fallback, el archivo --cpt.")
+    parser.add_argument("--colorbar-text-pos", choices=['below', 'middle', 'above'], default='below',
+                        help="Posición del texto en la barra de colores (default: below)")
     parser.add_argument(
         "--metadata",  "-m", help="Archivo JSON con metadatos (CRS, bounds, timestamp) para imágenes sin georreferencia.")
     parser.add_argument("--legend-pos", type=int,
@@ -1382,8 +1384,13 @@ def main():
             # Prioridad 2: --cpt externo
             if cpt_obj is None and args.cpt:
                 try:
-                    cpt_obj = ColorPaletteTable(args.cpt)
-                    debug_msg(f"Colorbar: usando paleta externa {args.cpt}.")
+                    cpt_path = args.cpt
+                    if not os.path.exists(cpt_path):
+                        global_path = os.path.join(GLOBAL_LANOT_DIR, "colortables", os.path.basename(cpt_path))
+                        if os.path.exists(global_path):
+                            cpt_path = global_path
+                    cpt_obj = ColorPaletteTable(cpt_path)
+                    debug_msg(f"Colorbar: usando paleta externa {cpt_path}.")
                 except Exception as e:
                     debug_msg(f"No se pudo cargar CPT {args.cpt}: {e}")
             if cpt_obj is None:
@@ -1399,7 +1406,8 @@ def main():
                 img = mapper.image
             barsz = img.height // 20
             cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height - 2 * barsz,
-                                img.width, barsz, font_size=barsz // 2)
+                                img.width, barsz, font_size=barsz // 2,
+                                text_pos=args.colorbar_text_pos)
 
     # 10. Guardar
     # Recuperar la imagen del mapper por si hubo recorte (crop genera nueva instancia)
