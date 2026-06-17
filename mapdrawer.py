@@ -1375,7 +1375,7 @@ def main():
     if args.colorbar:
         cpt_obj = None
         if HAS_CPT:
-            # Prioridad 1: colormap embebido en el TIFF
+            # Prioridad 1: tag de texto 'colormap' embebido (CSPP VIIRS ATMOS)
             if HAS_RASTERIO:
                 try:
                     with rasterio.open(args.input_image) as src:
@@ -1387,16 +1387,24 @@ def main():
                                 tags['colormap'], tiff_offset=tiff_offset, tiff_scale=tiff_scale)
                             debug_msg("Colorbar: usando colormap de tag de texto del TIFF.")
                         else:
+                            # Guardar para Prioridad 3; no asignar aún
                             try:
-                                rasterio_cm = src.colormap(1)
-                                if rasterio_cm:
-                                    cpt_obj = ColorPaletteTable.from_rasterio_colormap(rasterio_cm)
-                                    debug_msg("Colorbar: usando colormap nativo del TIFF.")
+                                _rasterio_cm = src.colormap(1)
+                                _phys_min  = float(tags['colormap_min'])  if 'colormap_min'  in tags else None
+                                _phys_max  = float(tags['colormap_max'])  if 'colormap_max'  in tags else None
+                                _n_colors  = int(tags['colormap_size'])   if 'colormap_size' in tags else None
+                                _units     = tags.get('colormap_units')
                             except Exception:
-                                pass
+                                _rasterio_cm = None
+                                _phys_min = _phys_max = _n_colors = _units = None
                 except Exception as e:
                     debug_msg(f"No se pudo leer colormap del TIFF: {e}")
-            # Prioridad 2: --cpt externo
+                    _rasterio_cm = None
+                    _phys_min = _phys_max = _n_colors = _units = None
+            else:
+                _rasterio_cm = None
+                _phys_min = _phys_max = _n_colors = _units = None
+            # Prioridad 2: --cpt externo (el usuario lo pidió explícitamente)
             if cpt_obj is None and args.cpt:
                 try:
                     cpt_path = args.cpt
@@ -1408,6 +1416,13 @@ def main():
                     debug_msg(f"Colorbar: usando paleta externa {cpt_path}.")
                 except Exception as e:
                     debug_msg(f"No se pudo cargar CPT {args.cpt}: {e}")
+            # Prioridad 3: colormap nativo del TIFF (paleta rasterio estándar)
+            if cpt_obj is None and _rasterio_cm:
+                cpt_obj = ColorPaletteTable.from_rasterio_colormap(
+                    _rasterio_cm, phys_min=_phys_min, phys_max=_phys_max, n_colors=_n_colors)
+                if _units:
+                    cpt_obj.units = _units
+                debug_msg("Colorbar: usando colormap nativo del TIFF.")
             if cpt_obj is None:
                 print("Advertencia: --colorbar requiere colormap en el TIFF o --cpt. Se omite.", file=sys.stderr)
         else:

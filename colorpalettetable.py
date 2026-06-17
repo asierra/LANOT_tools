@@ -257,12 +257,17 @@ class ColorPaletteTable:
         return obj
 
     @classmethod
-    def from_rasterio_colormap(cls, rasterio_cm):
+    def from_rasterio_colormap(cls, rasterio_cm, phys_min=None, phys_max=None, n_colors=None):
         """Construye una instancia desde un colormap nativo de rasterio.
 
         Args:
             rasterio_cm (dict): Resultado de src.colormap(band), con formato
                                 {pixel_index: (r, g, b, a)}.
+            phys_min (float, opcional): Valor físico en el índice 0 (tag colormap_min).
+            phys_max (float, opcional): Valor físico en el último índice válido (tag colormap_max).
+            n_colors (int, opcional): Número de entradas válidas (tag colormap_size).
+                Si los tres parámetros están presentes se usa el rango físico completo;
+                si no, se detecta el índice máximo efectivo heurísticamente.
         """
         obj = cls()
         if not rasterio_cm:
@@ -276,13 +281,28 @@ class ColorPaletteTable:
                 palette[idx * 3 + 2] = rgba[2]
 
         obj.palette = palette
-        obj.offset = 0
-        obj.scale_factor = 1.0
 
-        valid_keys = [k for k in rasterio_cm if 0 <= k < 256]
-        if valid_keys:
-            obj.min_val = min(valid_keys)
-            obj.max_val = max(valid_keys)
+        if phys_min is not None and phys_max is not None and n_colors is not None:
+            obj.min_val = phys_min
+            obj.max_val = phys_max
+            obj.offset = phys_min
+            obj.scale_factor = (n_colors - 1) / (phys_max - phys_min) if phys_max != phys_min else 1.0
+        else:
+            # Fallback sin tags: usar índices directamente
+            obj.offset = 0
+            obj.scale_factor = 1.0
+            valid_keys = [k for k in rasterio_cm if 0 <= k < 256]
+            if valid_keys:
+                obj.min_val = min(valid_keys)
+                # Detectar el último índice con color distinto al de relleno
+                # (rasterio llena las entradas no usadas con el color de índice 255)
+                fill = rasterio_cm.get(255, (0, 0, 0, 255))[:3]
+                effective_max = obj.min_val
+                for idx in sorted(valid_keys, reverse=True):
+                    if rasterio_cm[idx][:3] != fill:
+                        effective_max = idx
+                        break
+                obj.max_val = effective_max
 
         return obj
 
