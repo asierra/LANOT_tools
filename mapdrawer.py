@@ -15,7 +15,7 @@ import csv
 import sys
 import argparse
 import json
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 import fiona
 import math
 import numpy as np
@@ -792,7 +792,7 @@ class MapDrawer:
 
         self.image.paste(logo, (x, y), logo)
 
-    def draw_fecha(self, timestamp, position=2, fontsize=15, format="%Y/%m/%d %H:%MZ", color='white'):
+    def draw_fecha(self, timestamp, position=2, fontsize=15, format="%Y/%m/%d %H:%MZ", color='white', bg_color=None):
         """
         Dibuja la fecha/hora en la imagen.
 
@@ -802,6 +802,8 @@ class MapDrawer:
             fontsize (int): Tamaño de la fuente
             format (str): Formato de fecha usando códigos strftime (por defecto: "%Y/%m/%d %H:%MZ")
             color (str): Color del texto
+            bg_color (str, opcional): Color de fondo semitransparente para mejorar
+                legibilidad sobre imágenes claras/coloridas. None desactiva el fondo.
         """
         if self.image is None:
             return
@@ -846,6 +848,17 @@ class MapDrawer:
                 y = self.image.height - text_height - margin
             else:  # Top
                 y = margin
+
+            # Fondo semitransparente opcional, para legibilidad sobre fondos claros/coloridos
+            if bg_color is not None:
+                pad = max(4, fontsize // 4)
+                bx0 = max(0, x - pad)
+                by0 = max(0, y - pad)
+                bx1 = min(self.image.width, x + text_width + pad)
+                by1 = min(self.image.height, y + text_height + pad)
+                overlay = Image.new('RGBA', (bx1 - bx0, by1 - by0),
+                                    ImageColor.getrgb(bg_color) + (140,))
+                self.image.paste(overlay, (bx0, by0), overlay)
 
             # Dibujar el texto
             draw.text((x, y), fecha_str, font=font, fill=color)
@@ -1077,6 +1090,9 @@ def main():
         "--font-size", help="Tamaño de fuente (píxeles, float <= 1.0 o porcentaje)")
     parser.add_argument("--font-color", default="yellow",
                         help="Color de fuente")
+    parser.add_argument("--font-bg", default=None,
+                        help="Color de fondo semitransparente detrás de la fecha (ej. 'black'). "
+                             "Por defecto no se dibuja fondo.")
 
     # Leyenda
     parser.add_argument("--cpt", help="Archivo CPT para generar leyenda")
@@ -1353,7 +1369,7 @@ def main():
 
     if ts is not None and pos is not None:
         mapper.draw_fecha(ts, position=pos, fontsize=font_size,
-                          color=args.font_color)
+                          color=args.font_color, bg_color=args.font_bg)
 
     # --colorbar-text-pos implica --colorbar; normalizar default
     if args.colorbar_text_pos is not None:
@@ -1434,8 +1450,27 @@ def main():
                 cpt_obj.units = metadata['units']
             if mapper.image:
                 img = mapper.image
+            
+            # --- Ajuste de posición vertical dinámico ---
             barsz = img.height // 20
-            cpt_obj.draw_legend(ImageDraw.Draw(img), 0, img.height - 2 * barsz,
+            offset = 2.0 * barsz  # posición base (igual que antes del ajuste)
+
+            # Solo ajustamos si hay fecha dibujada en una esquina inferior (LL/LR);
+            # si no hay nada abajo con qué encimarse, no tocamos la posición.
+            fecha_abajo = ts is not None and pos in (2, 3)
+            if fecha_abajo:
+                aspect_ratio = img.width / img.height
+                # Si el AR es muy alargado (ej. > 2.0), subimos la barra
+                # El valor 2.0 es el umbral, el 0.5 controla la sensibilidad del ajuste
+                threshold = 2.0
+                if aspect_ratio > threshold:
+                    offset = (2.0 * barsz) + ((aspect_ratio - threshold) * barsz * 0.8)
+
+                # Clamp de seguridad: que la barra nunca se salga por el borde superior
+                max_offset = img.height - barsz
+                offset = min(offset, max_offset)
+
+            cpt_obj.draw_legend(ImageDraw.Draw(img), 0, int(img.height - offset),
                                 img.width, barsz, font_size=barsz // 2,
                                 text_pos=args.colorbar_text_pos)
 
