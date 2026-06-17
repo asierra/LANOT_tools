@@ -1,0 +1,16 @@
+# MODIS LST Color Palette (Kelvin Scale: 250K to 345K)
+# UNIT = K
+# COLOR_MODEL = RGB
+# Format: [Val1]  [R1] [G1] [B1]    [Val2]  [R2] [G2] [B2]
+
+250.00    0    0  255    273.15    0  255  255  # Azul a Cian (< 0°C)
+273.15    0  255  255    288.15    0  255    0  # Cian a Verde (0°C a 15°C)
+288.15    0  255    0    303.15  255  255    0  # Verde a Amarillo (15°C a 30°C)
+303.15  255  255    0    318.15  255  128    0  # Amarillo a Naranja (30°C a 45°C)
+318.15  255  128    0    333.15  255    0    0  # Naranja a Rojo (45°C a 60°C)
+333.15  255    0    0    345.00  255  150  200  # Rojo a Rosa cálido (> 60°C)
+
+# Special values
+B        75    0  130   # Background (< 250K)
+F       255   20  147   # Foreground (> 345K)
+N         0    0    0   # No Data

@@ -1,0 +1,23 @@
+# press.cpt
+# CPT para Presion de Tope de Nube CTP (Cloud Top Pressure)
+# UNIT = hPa
+# COLOR_MODEL = RGB
+
+# Nubes muy altas (Topes en la alta troposfera)
+100   255 255 255   200   255   0 255  # Blanco a Magenta (100-200 hPa)
+200   255   0 255   300     0   0 255  # Magenta a Azul profundo (200-300 hPa)
+
+# Nubes medias altas
+300     0   0 255   500     0 255 255  # Azul a Cian (300-500 hPa)
+
+# Nubes medias
+500     0 255 255   700     0 255   0  # Cian a Verde (500-700 hPa)
+
+# Nubes bajas
+700     0 255   0   850   255 255   0  # Verde a Amarillo (700-850 hPa)
+850   255 255   0  1050   255 128   0  # Amarillo a Naranja (850-1050 hPa)
+
+# Valores Especiales
+B   255 255 255   # < 100 hPa (Topes anómalamente altos, Blanco puro)
+F   255  64   0   # > 1050 hPa (Bases al ras del suelo/anomalías altas, Naranja rojizo)
+N     0   0   0   # No Data / Cielo Despejado (Negro para transparencia)
