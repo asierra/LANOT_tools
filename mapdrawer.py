@@ -48,6 +48,10 @@ except ImportError:
 
 VERBOSE = False
 
+# Bandera interna: convertir colorbar de Kelvin a Celsius cuando el CPT/metadatos
+# reporten unidades en K. No afecta el color de los pixeles, solo la leyenda.
+CONVERT_KELVIN_TO_CELSIUS = True
+
 
 def debug_msg(msg):
     if VERBOSE:
@@ -1450,7 +1454,18 @@ def main():
                 cpt_obj.units = metadata['units']
             if mapper.image:
                 img = mapper.image
-            
+
+            # --- Conversión opcional K -> C para la colorbar ---
+            # Se desplazan min_val/max_val/offset por la misma constante para no
+            # alterar (min_val - offset) * scale_factor, que es lo que define qué
+            # tramo de la paleta se pinta en la barra (ver _draw_colorbar).
+            if CONVERT_KELVIN_TO_CELSIUS and cpt_obj.units and cpt_obj.units.strip().upper() in ('K', 'KELVIN'):
+                delta = -273.15
+                cpt_obj.min_val += delta
+                cpt_obj.max_val += delta
+                cpt_obj.offset += delta
+                cpt_obj.units = 'C'
+
             # --- Ajuste de posición vertical dinámico ---
             barsz = img.height // 20
             offset = 2.0 * barsz  # posición base (igual que antes del ajuste)
