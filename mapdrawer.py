@@ -1199,29 +1199,6 @@ def main():
             f"Escalando imagen de {img.size} a {(new_w, new_h)} (Factor: {args.scale})")
         img = img.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
 
-    if args.outsize:
-        import re
-        m = re.fullmatch(r'(\d+)?x(\d+)?|(\d+)', args.outsize)
-        if not m:
-            print(f"Error: formato de --outsize inválido '{args.outsize}'. "
-                  "Use '512', '512x', 'x300' o '200x200'.", file=sys.stderr)
-            sys.exit(1)
-        if m.group(3):  # solo número: ancho
-            new_w = int(m.group(3))
-            new_h = max(1, int(img.height * new_w / img.width))
-        else:
-            w_str, h_str = m.group(1), m.group(2)
-            if w_str and h_str:  # WxH exacto
-                new_w, new_h = int(w_str), int(h_str)
-            elif w_str:          # Wx — solo ancho
-                new_w = int(w_str)
-                new_h = max(1, int(img.height * new_w / img.width))
-            else:                # xH — solo alto
-                new_h = int(h_str)
-                new_w = max(1, int(img.width * new_h / img.height))
-        debug_msg(f"Redimensionando imagen de {img.size} a ({new_w}, {new_h}) (--outsize {args.outsize})")
-        img = img.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
-
     # Reproyección de salida (--o_crs): ocurre ANTES de dibujar overlays
     dst_transform = None
     o_crs_used = args.o_crs if hasattr(args, 'o_crs') else None
@@ -1316,6 +1293,31 @@ def main():
             else:
                 print(
                     f"Error: Región de recorte '{args.clip}' no encontrada.", file=sys.stderr)
+
+    # 4b. Redimensionar a tamaño absoluto post-recorte
+    if args.outsize:
+        import re
+        m = re.fullmatch(r'(\d+)?x(\d+)?|(\d+)', args.outsize)
+        if not m:
+            print(f"Error: formato de --outsize inválido '{args.outsize}'. "
+                  "Use '512', '512x', 'x300' o '200x200'.", file=sys.stderr)
+            sys.exit(1)
+        src = mapper.image
+        if m.group(3):  # solo número: ancho
+            new_w = int(m.group(3))
+            new_h = max(1, int(src.height * new_w / src.width))
+        else:
+            w_str, h_str = m.group(1), m.group(2)
+            if w_str and h_str:  # WxH exacto
+                new_w, new_h = int(w_str), int(h_str)
+            elif w_str:          # Wx — solo ancho
+                new_w = int(w_str)
+                new_h = max(1, int(src.height * new_w / src.width))
+            else:                # xH — solo alto
+                new_h = int(h_str)
+                new_w = max(1, int(src.width * new_h / src.height))
+        debug_msg(f"Redimensionando imagen de {src.size} a ({new_w}, {new_h}) (--outsize {args.outsize})")
+        mapper.set_image(src.resize((new_w, new_h), resample=Image.Resampling.LANCZOS))
 
     # Calcular tamaños dinámicos respecto a la imagen post-recorte
     img_width = mapper.image.width
