@@ -1112,6 +1112,8 @@ def main():
                         choices=[0, 1, 2, 3], help="Posición de la leyenda (0-3)")
     parser.add_argument("--scale", "-s", type=float,
                         help="Factor de escala para redimensionar la imagen (ej. 0.5)")
+    parser.add_argument("--outsize",
+                        help="Tamaño de salida: '512' o '512x' = ancho, 'x300' = alto, '200x200' = exacto")
 
     parser.add_argument("--jpeg", "-j", action="store_true",
                         help="Guardar salida en formato JPEG (por defecto PNG)")
@@ -1183,6 +1185,10 @@ def main():
         print(f"Error abriendo imagen: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if args.scale and args.outsize:
+        print("Error: --scale y --outsize son mutuamente excluyentes.", file=sys.stderr)
+        sys.exit(1)
+
     if args.scale:
         if args.scale <= 0:
             print("Error: El factor de escala debe ser mayor que 0.", file=sys.stderr)
@@ -1191,6 +1197,29 @@ def main():
         new_h = max(1, int(img.height * args.scale))
         debug_msg(
             f"Escalando imagen de {img.size} a {(new_w, new_h)} (Factor: {args.scale})")
+        img = img.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
+
+    if args.outsize:
+        import re
+        m = re.fullmatch(r'(\d+)?x(\d+)?|(\d+)', args.outsize)
+        if not m:
+            print(f"Error: formato de --outsize inválido '{args.outsize}'. "
+                  "Use '512', '512x', 'x300' o '200x200'.", file=sys.stderr)
+            sys.exit(1)
+        if m.group(3):  # solo número: ancho
+            new_w = int(m.group(3))
+            new_h = max(1, int(img.height * new_w / img.width))
+        else:
+            w_str, h_str = m.group(1), m.group(2)
+            if w_str and h_str:  # WxH exacto
+                new_w, new_h = int(w_str), int(h_str)
+            elif w_str:          # Wx — solo ancho
+                new_w = int(w_str)
+                new_h = max(1, int(img.height * new_w / img.width))
+            else:                # xH — solo alto
+                new_h = int(h_str)
+                new_w = max(1, int(img.width * new_h / img.height))
+        debug_msg(f"Redimensionando imagen de {img.size} a ({new_w}, {new_h}) (--outsize {args.outsize})")
         img = img.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
 
     # Reproyección de salida (--o_crs): ocurre ANTES de dibujar overlays
