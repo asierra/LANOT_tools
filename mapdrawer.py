@@ -14,6 +14,7 @@ import os
 import csv
 import sys
 import argparse
+import re
 import json
 from PIL import Image, ImageDraw, ImageFont, ImageColor
 import fiona
@@ -656,6 +657,41 @@ class MapDrawer:
         rel_path = self._layers[layer_key]
         self.draw_shapefile(rel_path, color=color, width=width)
 
+    def draw_shape(self, shape, lon, lat, size, color):
+        """Dibuja una figura geométrica de relleno sólido centrada en una coordenada geográfica.
+
+        La posición se da en lon/lat y se convierte a píxeles vía _geo2pixel(),
+        por lo que funciona igual sin importar el CRS/proyección activa.
+
+        Args:
+            shape (str): Tipo de figura ('triangle'; circle/square pendientes).
+            lon, lat (float): Coordenadas geográficas del centroide de la figura.
+            size (int): Tamaño en píxeles (lado de la base para triangle).
+            color (str): Color de relleno.
+        """
+        if self.image is None:
+            return
+        center = self._geo2pixel(lon, lat)
+        if center is None:
+            debug_msg(f"draw_shape: posición ({lon}, {lat}) fuera de proyección, se omite.")
+            return
+        cx, cy = center
+        draw = ImageDraw.Draw(self.image)
+
+        if shape == 'triangle':
+            # Triángulo equilátero, base horizontal, ápice hacia arriba,
+            # centrado en el centroide (cx, cy).
+            half_base = size / 2
+            height = size * (3 ** 0.5) / 2
+            points = [
+                (cx, cy - 2 * height / 3),          # ápice
+                (cx - half_base, cy + height / 3),  # base izquierda
+                (cx + half_base, cy + height / 3),  # base derecha
+            ]
+            draw.polygon(points, fill=color)
+        else:
+            print(f"Advertencia: tipo de figura '{shape}' no soportado.", file=sys.stderr)
+
     def draw_grid(self, interval=15, color='gray', width=0.5, labels=False, label_size=None):
         """
         Dibuja una malla de latitud y longitud.
@@ -1058,6 +1094,9 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Herramienta de línea de comandos para dibujar mapas y decoraciones en imágenes.")
+    # Permitir valores tipo "-121.0,31.0,-114.0,24.0" (bounds/clip) sin que argparse
+    # los confunda con otra opción por empezar con '-'.
+    parser._negative_number_matcher = re.compile(r'^-[-\d.,]+$')
 
     parser.add_argument(
         "input_image", help="Ruta de la imagen de entrada (PNG, JPG, etc.)")
@@ -1074,6 +1113,10 @@ def main():
     parser.add_argument("--layer", action="append",
                         help="Capa a dibujar: NOMBRE:COLOR:GROSOR[:LABELS] "
                              "(ej: COASTLINE:blue:0.5, grid15:white:1.0:labels)")
+    parser.add_argument("--shape", action="append",
+                        help="Figura geométrica de relleno sólido: TIPO:LON:LAT:TAMAÑO:COLOR "
+                             "(ej: triangle:-99.13:19.43:0.02:red). Tipos soportados: triangle. "
+                             "TAMAÑO sigue la misma convención que --logo-size (px, fracción o %%).")
 
     # Proyección
     parser.add_argument(
@@ -1296,7 +1339,6 @@ def main():
 
     # 4b. Redimensionar a tamaño absoluto post-recorte
     if args.outsize:
-        import re
         m = re.fullmatch(r'(\d+)?x(\d+)?|(\d+)', args.outsize)
         if not m:
             print(f"Error: formato de --outsize inválido '{args.outsize}'. "
@@ -1368,6 +1410,27 @@ def main():
                 mapper.draw_layer(name, color=color, width=width)
     elif args.layer and not bounds_set:
         print("Advertencia: Se pidieron capas pero no se definieron límites (--bounds).")
+
+    # 6b. Dibujar figuras geométricas
+    if args.shape and bounds_set:
+        for shape_def in args.shape:
+            parts = shape_def.split(':')
+            if len(parts) < 5:
+                print(f"Advertencia: --shape mal formado: '{shape_def}'. Se omite.", file=sys.stderr)
+                continue
+            shape_type = parts[0]
+            try:
+                lon = float(parts[1])
+                lat = float(parts[2])
+            except ValueError:
+                print(f"Advertencia: coordenadas inválidas en --shape '{shape_def}'. Se omite.", file=sys.stderr)
+                continue
+            default_size = max(8, int(img_width * 0.02))
+            size = calculate_size(parts[3], img_width, default_size)
+            color = parts[4]
+            mapper.draw_shape(shape_type, lon, lat, size, color)
+    elif args.shape and not bounds_set:
+        print("Advertencia: Se pidieron figuras pero no se definieron límites (--bounds).")
 
     # 6. Logo
     if args.logo_pos is not None:
